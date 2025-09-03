@@ -4,4 +4,5 @@ create or replace table test1 (
   phone_num int,
   address varchar,
   city varchar,
+  zipcode int,
   country varchar );
