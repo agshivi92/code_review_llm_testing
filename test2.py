@@ -1,4 +1,4 @@
 def divide(a, b):
     result = a / b  
-    print("Result is " + result) 
+    print("Result of division is " + result) 
     return result
