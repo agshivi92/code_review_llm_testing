@@ -47,17 +47,21 @@ jobs:
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BASE_REF="${{ github.event.pull_request.base.ref }}"
             echo "Running for PR. Base ref is: $BASE_REF"
+            # IMPORTANT: Fetch the determined base branch
+            git fetch origin "$BASE_REF"
+            # Generate the diff
+            # Use the determined BASE_REF variable
+            git diff origin/$BASE_REF...HEAD > diff_code_to_review.txt
+            
           else
             BASE_REF="${{ github.event.inputs.base_branch || 'main' }}" # Use input or default 'main'
             echo "Running manually. Base ref is: $BASE_REF"
+            # IMPORTANT: Fetch the determined base branch
+            git fetch origin "$BASE_REF"
+            # Generate the diff
+            # Use the determined BASE_REF variable
+            git diff origin/"$BASE_REF" HEAD > diff_code_to_review.txt
           fi
-
-          # IMPORTANT: Fetch the determined base branch
-          git fetch origin "$BASE_REF"
-
-          # Generate the diff
-          # Use the determined BASE_REF variable
-          git diff origin/$BASE_REF...HEAD > diff_code_to_review.txt
           echo "Diff successfully generated to diff_code_to_review.txt"
           ls -l diff_code_to_review.txt # Optional: to confirm the file exists and its size
       
