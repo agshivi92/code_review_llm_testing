@@ -41,13 +41,23 @@ jobs:
       - name: Extract PR diff
         id: diff
         run: |
-          # Fetch the base branch of the PR to ensure it's up-to-date locally
-          git fetch origin ${{ github.event.pull_request.base.ref }}
+          # Determine the base branch dynamically
+          # If it's a PR event, use the PR's base.
+          # If it's workflow_dispatch, use the input or default 'main'.
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.ref }}"
+            echo "Running for PR. Base ref is: $BASE_REF"
+          else
+            BASE_REF="${{ github.event.inputs.base_branch || 'main' }}" # Use input or default 'main'
+            echo "Running manually. Base ref is: $BASE_REF"
+          fi
 
-          # Generate the diff between the base branch and the PR HEAD
-          # The '...' syntax ensures we only get changes introduced by the PR branch
-          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD > diff_code_to_review.txt
-          
+          # IMPORTANT: Fetch the determined base branch
+          git fetch origin "$BASE_REF"
+
+          # Generate the diff
+          # Use the determined BASE_REF variable
+          git diff origin/$BASE_REF...HEAD > diff_code_to_review.txt
           echo "Diff successfully generated to diff_code_to_review.txt"
           ls -l diff_code_to_review.txt # Optional: to confirm the file exists and its size
 
