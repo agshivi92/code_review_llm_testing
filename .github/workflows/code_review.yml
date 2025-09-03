@@ -24,9 +24,9 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # Fetch the head of the PR branch
-          fetch-depth: 0 # Ensures full history is available for diffing against base
+        # with:
+        #   # Fetch the head of the PR branch
+        #   fetch-depth: 0 # Ensures full history is available for diffing against base
 
       # Set up python environment
       - name: Set up Python
@@ -61,27 +61,27 @@ jobs:
           echo "Diff successfully generated to diff_code_to_review.txt"
           ls -l diff_code_to_review.txt # Optional: to confirm the file exists and its size
       
-      - name: Run Snowflake Cortex Review
-        id: cortex_review
-        run: |
-          # The diff_code_to_review.txt file is available directly in the current working directory
-          python scripts/run_cortex_review.py diff_code_to_review.txt
+      # - name: Run Snowflake Cortex Review
+      #   id: cortex_review
+      #   run: |
+      #     # The diff_code_to_review.txt file is available directly in the current working directory
+      #     python scripts/run_cortex_review.py diff_code_to_review.txt
 
-      - name: Post Review Comment
-        uses: peter-evans/create-or-update-comment@v4
-        if: github.event_name == 'pull_request'
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          body: ${{ steps.cortex_review.outputs.review }}
-      
-      
-      
-      # - name: Upload diff.txt as an artifact 
-      #   uses: actions/upload-artifact@v4
-      #   id: upload_diff_step # Assign an ID to this step
+      # - name: Post Review Comment
+      #   uses: peter-evans/create-or-update-comment@v4
+      #   if: github.event_name == 'pull_request'
       #   with:
-      #     name: pr-diff-file
-      #     path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
+      #     issue-number: ${{ github.event.pull_request.number }}
+      #     body: ${{ steps.cortex_review.outputs.review }}
+      
+      
+      
+      - name: Upload diff.txt as an artifact 
+        uses: actions/upload-artifact@v4
+        id: upload_diff_step # Assign an ID to this step
+        with:
+          name: pr-diff-file
+          path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
   
   # --- JOB 2: DOWNLOAD AND USE THE DIFF ---
   # use_diff:
