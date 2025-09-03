@@ -60,38 +60,53 @@ jobs:
           git diff origin/$BASE_REF...HEAD > diff_code_to_review.txt
           echo "Diff successfully generated to diff_code_to_review.txt"
           ls -l diff_code_to_review.txt # Optional: to confirm the file exists and its size
+      
+      - name: Run Snowflake Cortex Review
+        id: cortex_review
+        run: |
+          # The diff_code_to_review.txt file is available directly in the current working directory
+          python scripts/run_cortex_review.py diff_code_to_review.txt
 
-      - name: Upload diff.txt as an artifact 
-        uses: actions/upload-artifact@v4
-        id: upload_diff_step # Assign an ID to this step
+      - name: Post Review Comment
+        uses: peter-evans/create-or-update-comment@v4
+        if: github.event_name == 'pull_request'
         with:
-          name: pr-diff-file
-          path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.cortex_review.outputs.review }}
+      
+      
+      
+      # - name: Upload diff.txt as an artifact 
+      #   uses: actions/upload-artifact@v4
+      #   id: upload_diff_step # Assign an ID to this step
+      #   with:
+      #     name: pr-diff-file
+      #     path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
   
   # --- JOB 2: DOWNLOAD AND USE THE DIFF ---
-  use_diff:
-    runs-on: ubuntu-latest
-    needs: generate_diff # This job depends on 'generate_diff' completing successfully
-    steps:
-    - name: Download diff artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: pr-diff-file # Must match the 'name' given during upload
-        path: ./downloaded-diff # Optional: Directory to download to (defaults to root of workspace)
+  # use_diff:
+  #   runs-on: ubuntu-latest
+  #   needs: generate_diff # This job depends on 'generate_diff' completing successfully
+  #   steps:
+  #   - name: Download diff artifact
+  #     uses: actions/download-artifact@v4
+  #     with:
+  #       name: pr-diff-file # Must match the 'name' given during upload
+  #       path: ./downloaded-diff # Optional: Directory to download to (defaults to root of workspace)
 
-    - name: Process the downloaded diff
-      run: |
-        echo "diff_code_to_review.txt has been downloaded and is available at: $(pwd)/downloaded-diff/diff_code_to_review.txt"
-        echo "Content of downloaded diff_code_to_review.txt:"
-        cat ./downloaded-diff/diff_code_to_review.txt # Display the content for verification
+  #   - name: Process the downloaded diff
+  #     run: |
+  #       echo "diff_code_to_review.txt has been downloaded and is available at: $(pwd)/downloaded-diff/diff_code_to_review.txt"
+  #       echo "Content of downloaded diff_code_to_review.txt:"
+  #       cat ./downloaded-diff/diff_code_to_review.txt # Display the content for verification
 
-        # Now you can use 'diff_code_to_review.txt' for other purposes, e.g.:
-        # - Analyze its content
-        # - Pass it to another script
-        # - Use it to decide further actions
-        if grep -q "FIXME" ./downloaded-diff/diff_code_to_review.txt; then
-          echo "WARNING: 'FIXME' found in the diff!"
-          # exit 1 # Optionally fail the job
-        fi
-        echo "Diff processing complete."
+  #       # Now you can use 'diff_code_to_review.txt' for other purposes, e.g.:
+  #       # - Analyze its content
+  #       # - Pass it to another script
+  #       # - Use it to decide further actions
+  #       if grep -q "FIXME" ./downloaded-diff/diff_code_to_review.txt; then
+  #         echo "WARNING: 'FIXME' found in the diff!"
+  #         # exit 1 # Optionally fail the job
+  #       fi
+  #       echo "Diff processing complete."
           
