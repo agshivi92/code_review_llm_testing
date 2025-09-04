@@ -5,4 +5,5 @@ create or replace table test1 (
   address varchar,
   city varchar,
   zipcode int,
-  country varchar );
+  country varchar,
+  account_num varchar);
