@@ -7,7 +7,7 @@ import re
 # The target context window size for the LLM.
 CONTEXT_WINDOW_TOKENS = 128000 
 # The base branch to compare against for generating the diff.
-# BASE_BRANCH = "origin/main" 
+#BASE_BRANCH = "origin/main" 
 
 def count_tokens(text: str, tokenizer) -> int:
     """Calculates the number of tokens in a given text."""
@@ -100,7 +100,7 @@ def create_diff_chunks(code_to_review) -> list[str]:
     print("Initializing tokenizer...")
     tokenizer = tiktoken.get_encoding("cl100k_base")
 
-    print(f"Generating diff against '{BASE_BRANCH}'...")
+    #print(f"Generating diff against '{BASE_BRANCH}'...")
     #full_diff = get_git_diff(BASE_BRANCH)
     full_diff = code_to_review
     if not full_diff:
