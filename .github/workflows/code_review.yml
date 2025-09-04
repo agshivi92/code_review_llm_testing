@@ -76,7 +76,7 @@ jobs:
         id: Token_Split
         run: |
           # The diff_code_to_review.txt file is available directly in the current working directory
-          python /split_code_diff.py diff_code_to_review.txt
+          python split_code_diff.py diff_code_to_review.txt
 
       # - name: Post Review Comment
       #   uses: peter-evans/create-or-update-comment@v4
