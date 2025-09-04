@@ -37,6 +37,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install snowflake-connector-python
+          pip install tiktoken
+          pip install whatthepatch
           
       - name: Extract PR diff
         id: diff
