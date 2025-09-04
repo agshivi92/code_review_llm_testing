@@ -167,7 +167,7 @@ def generate_test_summary(_session, selected_check_id):
         sys.exit(1)
                             
 def dq_main(session):
-   
+    print("Testing the app for code review")
     t1,t2,t3,t4 = st.columns([2,1,1,0.8])
     with t1:
         st.title(':blue[DATA QC]')
@@ -1429,4 +1429,5 @@ try:
             
 except IndexError:
     st.error('**🚨 Some error occured, Please refresh the page**')
+
     
