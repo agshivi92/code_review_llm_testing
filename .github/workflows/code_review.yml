@@ -72,8 +72,8 @@ jobs:
           name: pr-diff-file
           path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
   
-      - name: Check Diff File Token & Split
-        id: Token & Split
+      - name: Check Diff File Token And Split
+        id: Token_Split
         run: |
           # The diff_code_to_review.txt file is available directly in the current working directory
           python scripts/split_code_diff.py diff_code_to_review.txt
