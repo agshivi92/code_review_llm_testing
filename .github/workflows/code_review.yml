@@ -65,11 +65,18 @@ jobs:
           echo "Diff successfully generated to diff_code_to_review.txt"
           ls -l diff_code_to_review.txt # Optional: to confirm the file exists and its size
       
-      # - name: Run Snowflake Cortex Review
-      #   id: cortex_review
-      #   run: |
-      #     # The diff_code_to_review.txt file is available directly in the current working directory
-      #     python scripts/run_cortex_review.py diff_code_to_review.txt
+      - name: Upload diff.txt as an artifact 
+        uses: actions/upload-artifact@v4
+        id: upload_diff_step # Assign an ID to this step
+        with:
+          name: pr-diff-file
+          path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
+  
+      - name: Check Diff File Token & Split
+        id: Token & Split
+        run: |
+          # The diff_code_to_review.txt file is available directly in the current working directory
+          python scripts/split_code_diff.py diff_code_to_review.txt
 
       # - name: Post Review Comment
       #   uses: peter-evans/create-or-update-comment@v4
@@ -80,13 +87,7 @@ jobs:
       
       
       
-      - name: Upload diff.txt as an artifact 
-        uses: actions/upload-artifact@v4
-        id: upload_diff_step # Assign an ID to this step
-        with:
-          name: pr-diff-file
-          path: diff_code_to_review.txt # Optional: retention-days: 5 # How long to keep the artifact
-  
+      
   # --- JOB 2: DOWNLOAD AND USE THE DIFF ---
   # use_diff:
   #   runs-on: ubuntu-latest
