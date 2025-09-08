@@ -1,0 +1,267 @@
+# Import python packages
+
+import streamlit as st
+from snowflake.snowpark.context import get_active_session
+import pandas as pd 
+import numpy as np 
+import matplotlib.pyplot as plt 
+import plotly.express as px
+from snowflake.snowpark.functions import col,expr,count
+import calendar
+
+
+# Write directly to the app
+#st.set_page_config(layout="wide", page_title="**RVEZY BOOKING APP**")
+
+
+# Get the current credentials
+def pie_plot(df, names):
+    fig = px.pie(df, names=names, hole = 0.3)
+    fig.update_layout(title={'text':f"{names} distribution", 'x': 0.5, 'y':0.95})
+    st.plotly_chart(fig, use_container_width=True)
+
+def bar_plot(self,df, X, Color):
+    fig = px.bar(df, x=X, color=Color)
+    fig.update_layout(title={'text':f"{X} vs {Color}", 'x': 0.5, 'y':0.95}, margin= dict(l=0,r=10,b=10,t=30), yaxis_title=Color, xaxis_title=X)
+    st.plotly_chart(fig, use_container_width=True)
+
+def bar_plot_XY(df, X, Y, Color):
+    fig = px.bar(df, x=X, y=Y, color=Color)
+        
+    # Calculate the percentage values
+    total_counts = df.groupby(X)[Y].sum().reset_index()
+    total_counts['percentage'] = (total_counts[Y] / total_counts[Y].sum()) * 100
+
+    # Add percentage labels to the bars
+    for i, row in total_counts.iterrows():
+        percentage_label = f"{row['percentage']:.2f}%"
+        fig.add_annotation(
+            x=row[X],
+            y=row[Y],
+            text=percentage_label,
+            showarrow=False,
+            font=dict(size=10),
+            yshift=10
+        )
+        
+        fig.update_layout(
+            title={'text': f"{X} by {Y}", 'x': 0.5, 'y': 0.95},
+            margin=dict(l=0, r=10, b=10, t=30),
+            yaxis_title=Color,
+            xaxis_title=X,
+        )
+    
+        st.plotly_chart(fig, use_container_width=True)
+
+    
+      
+def main(session):
+    st.header("**TOTAL_GMV REPORT**")
+    tabs = st.tabs(['Booking_Details', 'TOTAL_GMV','Payment_Rate','Cancellation_Rate'])     
+    with tabs[0]:
+        df = session.sql(f" SELECT * FROM RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW").to_pandas()
+        #st.write(total_review_count_df.dtypes)
+        df['BOOKING_DATE'] = pd.to_datetime(df['BOOKING_DATE'])
+        MIN_DATE = df['BOOKING_DATE'].min()
+        MAX_DATE = df['BOOKING_DATE'].max()
+        #st.write(MIN_DATE,MAX_DATE)
+        start_date = st.date_input("Select Start Date:", min_value=MIN_DATE, max_value=MAX_DATE, value=MIN_DATE)
+        end_date = st.date_input("Select End Date", min_value=MIN_DATE, max_value=MAX_DATE, value=MAX_DATE)
+        #start_date_year = start_date.year
+        report_df =pd.DataFrame()
+        selected_year_df =pd.DataFrame()
+        selected_month_df =pd.DataFrame()
+        if start_date:
+            st.write(" ** Report calculated using selected date** ")
+            query = f" SELECT * FROM RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW WHERE BOOKING_DATE BETWEEN DATEADD(DAY, -6, '{start_date}') AND '{end_date}'"
+            report_df = session.sql(query).to_pandas()
+            st.write(report_df)
+            selected_year_df =  session.sql(f" select  distinct extract(YEAR from BOOKING_DATE) AS year from RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW WHERE BOOKING_DATE BETWEEN '{start_date}' AND '{end_date}' ").to_pandas()
+            #st.write(selected_year_df) 
+            selected_month_df =  session.sql(f" select  distinct extract(MONTH from BOOKING_DATE) AS month from RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW WHERE BOOKING_DATE BETWEEN '{start_date}' AND '{end_date}' ").to_pandas()
+            #st.write(selected_month_df)
+       #################################################################### 
+        st.subheader("**Overall Booking count as per country**")
+        
+        conditions = [
+            (report_df['COUNTRY'] == 1 ) ,
+            (report_df['COUNTRY'] == 2 ) 
+             ] 
+        values = ["CANADA","USA","OTHERS"]
+        report_df['COUNTRY'] = np.where(conditions[0], values[0], 
+                                         np.where(conditions[1], values[1], 
+                                         2))
+       
+        pie_plot(df=report_df, names = 'COUNTRY')
+        #####################################################################
+        #################################################################### 
+        st.subheader("**Overall Booking count as per RV Type**")
+        
+        conditions = [
+            (report_df['RVTYPE'] == 0) ,
+            (report_df['RVTYPE'] == 1) ,
+            (report_df['RVTYPE'] == 2) ,
+            (report_df['RVTYPE'] == 3) ,
+            (report_df['RVTYPE'] == 4) ,
+            (report_df['RVTYPE'] == 5) ,
+            (report_df['RVTYPE'] == 6) ,
+            (report_df['RVTYPE'] == 7) ,
+            (report_df['RVTYPE'] == 8) ,
+            (report_df['RVTYPE'] == 9) ,
+            (report_df['RVTYPE'] == 10) ,
+            (report_df['RVTYPE'] == 11) ,
+            (report_df['RVTYPE'] == 12) ,
+            (report_df['RVTYPE'] == 13) ,
+            (report_df['RVTYPE'] == 14) ,
+            (report_df['RVTYPE'] == 15) ,
+            (report_df['RVTYPE'] == 'null') 
+             ] 
+        values = ["Fifth Wheel","Tent Trailer","Travel Trailer","Vintage Trailer","Hybrid","Toy Hauler","Class A","Class B","Class C","Vintage Motorhome","Travel Trailer","Class C","Micro Trailer","Truck Camper","Campervan","RV Cottage","RV Cottage"]
+        report_df['RVTYPE'] = np.where(conditions[0], values[0], 
+                                         np.where(conditions[1], values[1],
+                                         np.where(conditions[2], values[2],
+                                         np.where(conditions[3], values[3],
+                                         np.where(conditions[4], values[4],
+                                         np.where(conditions[5], values[5],
+                                         np.where(conditions[6], values[6],
+                                         np.where(conditions[7], values[7],
+                                         np.where(conditions[8], values[8],
+                                         np.where(conditions[9], values[9],
+                                         np.where(conditions[10], values[10],
+                                         np.where(conditions[11], values[11],
+                                         np.where(conditions[12], values[12],
+                                         np.where(conditions[13], values[13],
+                                         np.where(conditions[14], values[14],
+                                         np.where(conditions[15], values[15],
+                                         np.where(conditions[16], values[16],
+                                         "Unknown")))))))))))))))))
+       
+        pie_plot(df=report_df, names = 'RVTYPE')
+        #####################################################################
+        st.subheader("**Overall Booking count as per User Age**")
+        
+        conditions = [
+            (report_df['USER_AGE'] <25 ) ,
+            (report_df['USER_AGE'] >=25 ) & (report_df['USER_AGE'] <=40 ) ,
+            (report_df['USER_AGE'] > 40 ) 
+             ] 
+        values = ["BELOW_25","MIDDLEAGE_25_40","ABOVE_40"]
+        report_df['USER_AGE'] = np.where(conditions[0], values[0], 
+                                         np.where(conditions[1], values[1],
+                                         np.where(conditions[2], values[2],
+                                         "OTHERS")))
+       
+        pie_plot(df=report_df, names = 'USER_AGE')
+    ######################################################################################
+    with tabs[1]:
+        #start_date = st.date_input("Start Date", min_value=MIN_DATE, max_value=MAX_DATE, value=MIN_DATE)
+        #end_date = st.date_input("End Date", min_value=MIN_DATE, max_value=MAX_DATE, value=MAX_DATE)
+        #Convert 'BOOKING_DATE' to datetime if not already
+        report_df['BOOKING_DATE'] = pd.to_datetime(report_df['BOOKING_DATE'], errors='coerce')
+        report_df['CREATED_MONTH'] =report_df['BOOKING_DATE'].dt.month.astype(int)       
+        report_df['CREATED_YEAR'] =report_df['BOOKING_DATE'].dt.year.astype(int)
+        #report_df['BOOKING_DATE'] = pd.to_datetime(report_df['BOOKING_DATE'])
+        
+        #booking_by_country_df = report_df.groupby(['BOOKING_DATE','CREATED_YEAR','CREATED_MONTH','COUNTRY'])['TOTAL_GMV'].count().reset_index() 
+        
+        #month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+        # Convert 'CREATED_MONTH' to a categorical type with specified order
+        #booking_by_country_df['MONTH_NAME'] = booking_by_country_df['CREATED_MONTH'].apply(lambda x: month_order[x-1])
+        selected_years = selected_year_df['YEAR'].tolist()
+        selected_years = st.multiselect("Select Years", list(range(2017, 2031)),default=selected_years)
+        selected_months = selected_month_df['MONTH'].tolist()
+        month_names = [calendar.month_name[month] for month in range(1, 13)]
+        selected_months = st.multiselect("Select Months",list(range(1, 13)), format_func=lambda x: month_names[x-1], default = selected_months)
+        #selected_month_names = [month_abbr[month] for month in selected_months]
+        #selected_start_date = pd.to_datetime(f'{min(selected_years)}-{min(selected_months)}-01')
+        selected_end_date = end_date
+        #selected_end_date = pd.to_datetime(f'{max(selected_years)}-{max(selected_months)}-01') + pd.DateOffset(months=1, days=-1)
+        date_filter = st.selectbox("Select Date Filter", ["Last Day","Last 7 Days","Last 28 Days", "Last 3 Months","Last 6 Months" ,"Last 1 Year", "All Time"])
+        if date_filter == "Last Day":
+            start_date = pd.to_datetime(selected_end_date)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "Last 7 Days":
+            start_date = pd.to_datetime(selected_end_date) - pd.DateOffset(days=7)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "Last 28 Days":
+            start_date = pd.to_datetime(selected_end_date) - pd.DateOffset(days=28)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "Last 3 Months":
+            start_date = pd.to_datetime(selected_end_date) - pd.DateOffset(months=3)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "Last 6 Months":
+            start_date = pd.to_datetime(selected_end_date) - pd.DateOffset(months=6)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "Last 1 Year":
+            start_date = pd.to_datetime(selected_end_date) - pd.DateOffset(years=1)
+            end_date = pd.to_datetime(selected_end_date)
+        elif date_filter == "All Time":
+            start_date = pd.to_datetime('2017-01-01')  # or any other appropriate start date
+            end_date = pd.to_datetime(selected_end_date)
+        else:
+            st.error("Invalid date filter selected")
+        #selected_date_filter = st.selectbox("Select Date Filter", date_filter)
+        #st.write(selected_date_filter)
+        # if date_filter =="Last Day":
+        #     query = f"""
+        #     SELECT * FROM RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW
+        #     WHERE TO_DATE(BOOKING_DATE) = TO_DATE('{end_date}') or TO_DATE(BOOKING_DATE) = TO_DATE(DATEADD(YEAR,-1,'{end_date}'))
+        #      """
+        # else:
+        query = f"""
+                SELECT * FROM RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW
+                WHERE TO_DATE(BOOKING_DATE) BETWEEN TO_DATE('{start_date}') AND TO_DATE('{end_date}')
+            """
+        query2 = f"""
+                SELECT * FROM RVEZY_CONSUMPTION.EXECUTIVE.BOOKING_REPORT_VIEW
+                WHERE TO_DATE(BOOKING_DATE) BETWEEN TO_DATE('{start_date}') AND TO_DATE('{end_date}')
+            """
+        
+    
+    # Execute your SQL query and handle empty result
+        
+        report_df = session.sql(query).to_pandas()
+        report_df['COUNTRY'] = report_df['COUNTRY'].replace({1: 'CANADA', 2: 'USA'})
+        report_df['RVTYPE'] = report_df['RVTYPE'].replace({0:'Fifth Wheel',1:'Tent Trailer',2:'Travel Trailer',3:'Vintage Trailer',4:'Hybrid',5:'Toy Hauler',6:'Class A',7:'Class B',8:'Class C',9:'Vintage Motorhome',10:'Travel Trailer',11:'Class C',12:'Micro Trailer',13:'Truck Camper',14:'Campervan',15:'RV Cottage'}).fillna('RV Cottage')
+        report_df['BOOKING_DATE'] = pd.to_datetime(report_df['BOOKING_DATE']).dt.date
+        #report_df['USER_AGE'] = report_df['USER_AGE'].replace({<25: 'CANADA', 2: 'USA'})
+        st.write(report_df)
+        #f1,f2 = st.columns(2)
+        
+        st.subheader("**TOTAL_GMV as per COUNTRY**")
+        #df = px.data.gapminder().query("country in ['CANADA','USA']")
+        fig = px.line(report_df, x="BOOKING_DATE", y="TOTAL_GMV", color='COUNTRY', markers=True)
+        st.plotly_chart(fig)
+        fig = px.bar(report_df, x='BOOKING_DATE', y='TOTAL_GMV', color='COUNTRY', barmode='group')
+        st.plotly_chart(fig)
+    
+        st.subheader("**TOTAL_GMV as per RVTYPE**")
+        fig = px.bar(report_df, x='BOOKING_DATE', y='TOTAL_GMV', color='RVTYPE', barmode='group')
+        st.plotly_chart(fig)
+        
+        st.subheader("**TOTAL_GMV as per USER AGE**")
+        fig = px.bar(report_df, x='BOOKING_DATE', y='TOTAL_GMV', color='USER_AGE', barmode='group')
+        st.plotly_chart(fig)
+
+    #df = pd.DataFrame(data)
+
+    # Calculate the sum of 'Value' column based on 'Country' group
+    #paymentrate_by_country = report_df.groupby(['COUNTRY','BOOKING_DATE','RVTYPE','USER_AGE'])['PAYMENT_RATE'].sum().reset_index()
+    with tabs[2]:   
+        st.subheader("**PAYMENT_RATE as per COUNTRY**")
+        fig = px.bar(report_df, x='BOOKING_DATE', y='PAYMENT_RATE', color='COUNTRY', barmode='group')
+        st.plotly_chart(fig)
+    
+        st.subheader("**PAYMENT_RATE as per RVTYPE**")
+        fig = px.bar(report_df, x='BOOKING_DATE', y='PAYMENT_RATE', color='RVTYPE', barmode='group')
+        st.plotly_chart(fig)
+        
+        st.subheader("**PAYMENT_RATE as per USER AGE**")
+        fig = px.bar(report_df, x='BOOKING_DATE', y='PAYMENT_RATE', color='USER_AGE', barmode='group')
+        st.plotly_chart(fig)
+    
+
+if __name__ == '__main__':
+    session = get_active_session()
+    main(session)
