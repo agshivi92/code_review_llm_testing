@@ -48,7 +48,7 @@ if "debug_variable" not in st.session_state:
     
 def main():
 
-    
+    st.write("Code review by LLM testing 1")
     # Initialize session state
     if "messages" not in st.session_state:
         reset_session_state()
@@ -1643,4 +1643,6 @@ def display_charts_tab(df: pd.DataFrame, message_index: int) -> None:
 
 if __name__ == "__main__":
     main()
+
     #st.write(st.session_state["messages"])
+
