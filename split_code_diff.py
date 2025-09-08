@@ -103,6 +103,11 @@ def create_diff_chunks(code_to_review) -> list[str]:
     #print(f"Generating diff against '{BASE_BRANCH}'...")
     #full_diff = get_git_diff(BASE_BRANCH)
     full_diff = code_to_review
+
+    # --- New: Define a directory to save your chunks ---
+    # This directory will be created in the GitHub Actions runner's workspace
+    OUTPUT_CHUNKS_DIR = "_temp_diff_chunks"
+    os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True) # Ensure the directory exists
     if not full_diff:
         print("No diff found or git error occurred.")
         return []
@@ -112,13 +117,18 @@ def create_diff_chunks(code_to_review) -> list[str]:
     print(f"Total diff has {total_tokens} tokens.")
     if total_tokens <= CONTEXT_WINDOW_TOKENS:
         print("Entire diff fits within the context window. Creating one chunk.")
-        return [full_diff]
+        chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, "full_diff_chunk_0.diff")
+        with open(chunk_filename, "w") as f:
+            f.write(full_diff)
+        print(f" -> Saved full diff chunk to {chunk_filename}")
+        final_chunks = [full_diff]
+        return final_chunks
 
     # --- Level 2: Diff is too large, split by file ---
     print("Total diff exceeds context window. Splitting by file...")
     patches = list(parse_patch(full_diff))
     final_chunks = []
-
+    chunk_counter = 0
     for patch in patches:
         # We only care about Python files for this logic
         if not patch.header.new_path.endswith(".py"):
@@ -132,12 +142,24 @@ def create_diff_chunks(code_to_review) -> list[str]:
         if file_tokens <= CONTEXT_WINDOW_TOKENS:
             print(" -> Fits in context window. Adding as a single chunk.")
             final_chunks.append(file_diff_str)
+            # --- NEW: Save this chunk to a file ---
+            # Use a unique name for each chunk
+            chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"diff_chunk_{chunk_counter}.diff")
+            with open(chunk_filename, "w") as f:
+                f.write(file_diff_str)
+            print(f" -> Saved chunk to {chunk_filename}")
+            chunk_counter += 1
         else:
             # --- Level 3: File is too large, split by function/class ---
             print(" -> File diff is too large. Splitting by function/class...")
             file_chunks = split_file_diff(patch, tokenizer)
             print(f" -> Split into {len(file_chunks)} smaller chunks.")
             final_chunks.extend(file_chunks)
+            chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"diff_chunk_oversized_{chunk_counter}.diff")
+            with open(chunk_filename, "w") as f:
+                f.write(file_diff_str)
+            print(f" -> Saved oversized chunk to {chunk_filename}")
+            chunk_counter += 1
     
     return final_chunks
 
