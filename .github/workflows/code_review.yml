@@ -80,6 +80,20 @@ jobs:
           # The diff_code_to_review.txt file is available directly in the current working directory
           python split_code_diff.py diff_code_to_review.txt
 
+      - name: Verify files created by script (Crucial for confirmation)
+        run: |
+          echo "Listing contents of the output directory: _temp_diff_chunks/"
+          ls -R _temp_diff_chunks/
+          echo "Verifying file counts:"
+          find _temp_diff_chunks -type f | wc -l # Count files in the directory
+
+      - name: Upload diff chunks as artifact
+        uses: actions/upload-artifact@v4 # Use the official upload-artifact action
+        with:
+          name: python-diff-chunks # The name of your artifact
+          path: _temp_diff_chunks/
+
+          
       # - name: Post Review Comment
       #   uses: peter-evans/create-or-update-comment@v4
       #   if: github.event_name == 'pull_request'
