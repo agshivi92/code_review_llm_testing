@@ -13,13 +13,6 @@ import os
 from PIL import Image
 import tempfile
 
-# List of available semantic model paths in the format: <DATABASE>.<SCHEMA>.<STAGE>/<FILE-NAME>
-# Each path points to a YAML file defining a semantic model
-# AVAILABLE_SEMANTIC_MODELS_PATHS = [
-#     # "DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/HT_del1.yml",
-#     'DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/item_selling_data_sandbox.yaml',
-#     #'DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/sentimental_analysis.yaml'
-# ]
 API_ENDPOINT = "/api/v2/cortex/analyst/message"
 API_TIMEOUT = 100000  # in milliseconds
 
@@ -27,7 +20,6 @@ API_TIMEOUT = 100000  # in milliseconds
 session = get_active_session()
 
 st.set_page_config(layout='wide')
-
 
 # Add this near the top of your file with other constants
 PREDEFINED_QUESTIONS = [
@@ -37,9 +29,6 @@ PREDEFINED_QUESTIONS = [
     "show me case counts by month for General Motors along with billing status in 2025",
     "show me general motors case count that are not in Billing_Ok for 2025 by status",
     "show me count of all cases for general motors by week by club for 2025"
-    #"show me # of cases and status for program id 147 for time between May1st, 2025 till today.",
-    # "show me ALL the cases in progress with status rule_ok",
-    #"Count of GM vehicles with current status FINANCIAL_OK",
     # "What is the average time it takes to be available on location"
 ]
 
@@ -48,59 +37,79 @@ if "debug_variable" not in st.session_state:
     
 def main():
 
+    current_user = st.experimental_user["user_name"]
+    #st.write("CURRENT_USER: ", current_user)
+
+    user_validity_check = session.sql(f"select distinct APP_role from RAP_UAT.RBP_REPORTS.RLS_MAPPINGS_LIST where username = '{current_user}' ").collect()
+    if len(user_validity_check) !=0:
+        all_app_roles = []
+        App_role_string = ''
+        for row in user_validity_check:
+            all_app_roles.append(row['APP_ROLE'].upper())
+        App_role_string = ", ".join(all_app_roles)
+        
+        yaml_file = session.sql(f"""select yaml_file from RAP_UAT.RBP_REPORTS.RLS_YAML_MAPPING map
+        inner join 
+        RAP_UAT.RBP_REPORTS.RLS_MAPPINGS_LIST list
+        on list.app_role = map.app_role
+        where list.username = '{current_user}'
+        """).collect()
+        # st.write(yaml_file[0][0])
+        st.session_state.yaml_file_name =yaml_file[0][0]
+        
+        # Initialize session state
+        if "messages" not in st.session_state:
+            reset_session_state()
+        else:
+            ## Clean up the message sequence if needed
+            cleanup_message_sequence()
     
-    # Initialize session state
-    if "messages" not in st.session_state:
-        reset_session_state()
+         # Create header with logo
+        header_col1, header_col2 = st.columns([3, 1])
+        
+        with header_col1:
+            st.title("RAP Case Query Agent")
+              
+        with header_col2:
+            #for file in ['chat-bot']:
+            session.file.get(f'@"RAP_UAT"."RBP_REPORTS"."RBP_KIPI_STAGE"/AAA_logo.png','/tmp')
+            #Display the logo in the top right
+            #st.image("HT_img", width=150)  
+            st.plotly_chart(image_png('/tmp/AAA_logo.png', img_width = 400, img_height = 200))
+    
+        st.write("***:red[The data was last updated as of date 4th June,2025]***")
+        st.write(f"***:green[The user {current_user} logged in with Application Role as {App_role_string}]***")
+        # Create two main tabs at the top level
+        main_tab1, main_tab2 = st.tabs(["Chat Interface", "Recent Queries"])
+        
+        with main_tab1:
+            # Current chatbot interface
+            show_header_and_sidebar()
+            
+            # Replace the API call with static questions
+            if len(st.session_state.messages) == 0:
+                #  welcome message and show predefined questions
+                welcome_message = {
+                    "role": "analyst",
+                    "content": [
+                        {"type": "text", "text": "Welcome! Here are some questions you can ask:"},
+                        {"type": "suggestions", "suggestions": PREDEFINED_QUESTIONS}
+                    ]
+                }
+                st.session_state.messages.append(welcome_message)
+            
+            display_conversation()
+            handle_user_inputs()
+            handle_error_notifications()
+            # st.write(st.session_state.actual_analyst_time)
+            # st.write(st.session_state.analyst_time)
+        
+        with main_tab2:
+            # Query history interface
+            display_query_history()
+            #pass
     else:
-        ## Clean up the message sequence if needed
-        cleanup_message_sequence()
-
-     # Create header with logo
-    header_col1, header_col2 = st.columns([3, 1])
-    
-    with header_col1:
-        st.title("RAP Case Query Agent")
-          
-    with header_col2:
-        #for file in ['chat-bot']:
-        session.file.get(f'@"RAP_UAT"."RBP_REPORTS"."RBP_KIPI_STAGE"/AAA_logo.png','/tmp')
-        #Display the logo in the top right
-        #st.image("HT_img", width=150)  
-        st.plotly_chart(image_png('/tmp/AAA_logo.png', img_width = 400, img_height = 200))
-
-    st.write("***:red[The data was last updated as of date 4th June,2025]***")
-    #st.write(f"***:green[The user {current_user} logged in with Application Role as {App_role_string}]***")
-    # Create two main tabs at the top level
-    main_tab1, main_tab2 = st.tabs(["Chat Interface", "Recent Queries"])
-    
-    with main_tab1:
-        # Current chatbot interface
-        show_header_and_sidebar()
-        
-        # Replace the API call with static questions
-        if len(st.session_state.messages) == 0:
-            #  welcome message and show predefined questions
-            welcome_message = {
-                "role": "analyst",
-                "content": [
-                    {"type": "text", "text": "Welcome! Here are some questions you can ask:"},
-                    {"type": "suggestions", "suggestions": PREDEFINED_QUESTIONS}
-                ]
-            }
-            st.session_state.messages.append(welcome_message)
-        
-        display_conversation()
-        handle_user_inputs()
-        handle_error_notifications()
-        # st.write(st.session_state.actual_analyst_time)
-        # st.write(st.session_state.analyst_time)
-    
-    with main_tab2:
-        # Query history interface
-        display_query_history()
-        #pass
-    
+        st.write(f"***:red[The user {current_user} does not have access to the data. Please contact the Snowflake Admin to get the access.]***")
 def image_png(file, img_width, img_height):
 
     loc = os.path.abspath(file)
@@ -216,7 +225,7 @@ def reset_session_state():
     st.session_state.analyst_time = 0
     st.session_state.actual_analyst_time =0
     st.session_state.cancel_execution = False  ## Added for stop button 
-    st.session_state.yaml_file_name = ''
+    st.session_state.yaml_file_name =''
     
 def enable_insight_generation():
     st.session_state.insight_generation = not st.session_state.insight_generation
@@ -233,6 +242,14 @@ def show_header_and_sidebar():
         "Welcome to RBP Insights assistant chatbot! Type your questions below to interact with your data. "
     )
     #st.divider()
+    # st.write(st.get_current_user())
+    # st.write(st.experiemental_user())
+    #st.write(st.experimental_user["user_name"])
+    # st.write(session.sql("select current_user()").to_pandas())
+    #current_user = session.sql("select current_user()").collect()
+    #st.write(current_user)
+    #x= session.sql("select * from RAP_UAT.RBP_REPORTS.TEMP_GOLD_CASE_BASIC_DETAILS limit 10;").collect()
+    #st.dataframe(x)
 
     # Sidebar with a reset button
     with st.sidebar:
@@ -401,8 +418,7 @@ def process_user_input(prompt: str):
                 start_time = time.time()
                 # Pass the entire conversation history (including previous messages) to the API
                 response, error_msg = get_analyst_response(st.session_state.messages)
-                #st.write("RESPONSE: ", response)
-                time.sleep(10)
+                
                 # Check if execution was cancelled during API call
                 if st.session_state.cancel_execution:
                     # Don't add another message here - just rerun
@@ -509,13 +525,16 @@ def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
     
     # Prepare the request body with the user's prompt and full conversation history
     filtered_messages = [{k: v for k,v in d.items() if k not in ["judge_result","llm_insights","result_df","insights_enabled"]} for d in messages]
+    # user = session.sql("select current_user()").collect()
+    
+    
     request_body = {
         "messages": filtered_messages,  # Pass the entire conversation history here
         
        # "semantic_model_file": f"@{st.session_state.selected_semantic_model_path}",
         
         "semantic_models": [
-        {"semantic_model_file": "@RAP_UAT.RBP_REPORTS.RBP_KIPI_STAGE/rbp_semantic_gold.yaml"}
+        {"semantic_model_file": f"{st.session_state.yaml_file_name}"}
         ]
     }
 
@@ -569,6 +588,8 @@ def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
             API_TIMEOUT,  # timeout in milliseconds
         )
     
+        st.write(resp)
+        time.sleep(10)
         analyst_time_end_time =time.time()
         st.session_state.actual_analyst_time =analyst_time_end_time -analyst_time_start_time
 
@@ -768,6 +789,7 @@ def display_message(content: List[Dict[str, str]], message_index: int):
         content (List[Dict[str, str]]): The message content.
         message_index (int): The index of the message.
     """
+
     #st.write(content)
     for item in content:
         if item["type"] == "text":
@@ -782,7 +804,8 @@ def display_message(content: List[Dict[str, str]], message_index: int):
         elif item["type"] == "sql":
             # Display the SQL query and results
             display_sql_query(item, message_index)
-            # st.write(session.get_current_user())
+            # st.write("CURRENT USER: ", session.get_current_user())
+            
             # Add thumbs-up and thumbs-down buttons for feedback
             thumbs_up, thumbs_down, email = st.columns([1, 1, 1])
 
@@ -803,7 +826,7 @@ def display_sql_query(item: dict, message_index: int):
         message_index (int): The index of the message.
     """
     sql = item["statement"]
-    
+    # st.write(sql)
     # Display the SQL query
     with st.expander("SQL Query", expanded=False):
         st.code(sql, language="sql")
@@ -843,20 +866,7 @@ def display_sql_query(item: dict, message_index: int):
             if df.empty:
                 st.write("Query returned no data")
                 return
-            total_bytes = df.memory_usage(index=True).sum()
-            # Convert bytes to megabytes (1 MB = 1024 * 1024 bytes)
-            bytes_in_mb = 1024 * 1024
-            size_in_mb = total_bytes / bytes_in_mb
-            
-            # Print the result
-            # print(f"DataFrame size in Bytes: {total_bytes}")
-            # print(f"DataFrame size in MB: {size_in_mb:.2f}")
-            total_records = len(df)
-            if size_in_mb <= 32:
-                df= df         
-            else:
-                st.write(f"***:red[Your request for data resulted in {total_records} records. Displaying records is limited to 50k records. You can download the complete data using the e-mail function]***")
-                df= df[:50000]
+
             # Show query results in three tabs - added insights tab
             # data_tab, chart_tab, insights_tab, LLM_Judge_Rating_tab = st.tabs(["Data 📄", "Chart 📈", "Insights 💡", "LLM_Judge_Rating :star:"])
             data_tab, chart_tab, insights_tab, LLM_Judge_Rating_tab = st.tabs([  
@@ -1007,9 +1017,8 @@ def display_sql_query(item: dict, message_index: int):
                                     <br><br>
                                     Here is the URL to download a CSV version of the result - <a href="{file_url}">{file_name}</a> 
                                     Thanks for using the AI Agent, hope you found it useful!'''
-                        #to_email = 'SAgarwal@national.aaa.com'
                         current_user_email = st.experimental_user["email"]
-                        to_email = (f"{current_user_email},SAgarwal@national.aaa.com,MJames@national.aaa.com")
+                        to_email = (f"{current_user_email},MJames@national.aaa.com")
                         email_subject = 'Snowflake RAP Case Query Agent | Export | {}'.format(datetime.utcnow().strftime('%Y-%m-%d'))
                             
                         session.sql("CALL SYSTEM$SEND_EMAIL('RBP_EMAIL_INT', '{}', '{}', '{}', '{}');".format(to_email, email_subject,email_body, "text/html")).collect()
@@ -1314,6 +1323,8 @@ def generate_insights_with_snowflake_complete(df: pd.DataFrame, user_query: str,
         return error_message
 
 
+########
+
 def save_detailed_feedback(user_id: str, raw_query: str, refined_query: str, sql_query: str, 
                            feedback_type: str, feedback_data: dict, insight_text: str = None, chart_desc: list = None):
     """
@@ -1424,7 +1435,6 @@ def save_query(user_id: str, user_query: str, sql_query: str, raw_query: str):
         st.success("Query and SQL generated Saved")
     except SnowparkSQLException as e:
         st.error(f"Error saving query: {e}")
-        
 #################################################
 def email_log_history(user_id: str, user_email: str, user_query: str, refined_query:str, sql_query: str):
     """
@@ -1458,7 +1468,6 @@ def email_log_history(user_id: str, user_email: str, user_query: str, refined_qu
         st.success("Email query and user details saved")
     except SnowparkSQLException as e:
         st.error(f"Error saving email logs: {e}")
-        
 ###### judge_LLM
 def judge_LLM(df: pd.DataFrame,  insights, user_query, message_index) -> str:
     """

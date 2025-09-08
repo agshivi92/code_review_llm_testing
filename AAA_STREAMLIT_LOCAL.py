@@ -2,32 +2,46 @@ import json  # To handle JSON data
 import time
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-import _snowflake  # For interacting with Snowflake-specific APIs
+import snowflake  # For interacting with Snowflake-specific APIs
 import pandas as pd
 import streamlit as st  # Streamlit library for building the web app
-from snowflake.snowpark.context import get_active_session  # To interact with Snowflake sessions
+#from snowflake.snowpark.context import get_active_session  # To interact with Snowflake sessions
 from snowflake.snowpark.exceptions import SnowparkSQLException
-import snowflake.cortex as cortex
-import plotly.graph_objects as go
+# from snowflake.snowpark.async_job import AsyncJob
+# import snowflake.connector
+# from snowflake.connector.cursor import ASYNC_RETRY_PATTERN
+#import snowflake.cortex as cortex
+from snowflake import cortex
+import plotly.graph_objects
+# from plotly.graph_objects as go
 import os
 from PIL import Image
 import tempfile
+from snowflake.snowpark import Session
+from snowflake.snowpark.session import Session
+from snowflake.snowpark.functions import avg, sum, col,lit
+import getpass
+import requests
+import re
 
-# List of available semantic model paths in the format: <DATABASE>.<SCHEMA>.<STAGE>/<FILE-NAME>
-# Each path points to a YAML file defining a semantic model
-# AVAILABLE_SEMANTIC_MODELS_PATHS = [
-#     # "DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/HT_del1.yml",
-#     'DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/item_selling_data_sandbox.yaml',
-#     #'DEMO_DB.REVENUE_TIMESERIES.RAW_DATA/sentimental_analysis.yaml'
-# ]
+
 API_ENDPOINT = "/api/v2/cortex/analyst/message"
 API_TIMEOUT = 100000  # in milliseconds
 
 # Initialize a Snowpark session for executing queries
-session = get_active_session()
+#session = get_active_session()
 
 st.set_page_config(layout='wide')
 
+connection_parameters = {
+    "account": "LDDJJUA-TKA20186",             # e.g., "xy12345.us-east-1"
+    "user": "SAGARWAL",   # Your Okta SSO username (not password)
+    "authenticator": "externalbrowser",      # This triggers Okta SSO via browser
+    "role": "RBP_REPORTS_UAT_RW",
+    "warehouse": "RBP_KIPI_UAT_WH",
+    "database": "RBP_UAT",
+    "schema": "RBP_REPORTS"
+}
 
 # Add this near the top of your file with other constants
 PREDEFINED_QUESTIONS = [
@@ -47,14 +61,15 @@ if "debug_variable" not in st.session_state:
     st.session_state["debug_variable"] = None
     
 def main():
-
-    
     # Initialize session state
+    # session_state = {}
     if "messages" not in st.session_state:
         reset_session_state()
     else:
         ## Clean up the message sequence if needed
         cleanup_message_sequence()
+
+    
 
      # Create header with logo
     header_col1, header_col2 = st.columns([3, 1])
@@ -70,7 +85,6 @@ def main():
         st.plotly_chart(image_png('/tmp/AAA_logo.png', img_width = 400, img_height = 200))
 
     st.write("***:red[The data was last updated as of date 4th June,2025]***")
-    #st.write(f"***:green[The user {current_user} logged in with Application Role as {App_role_string}]***")
     # Create two main tabs at the top level
     main_tab1, main_tab2 = st.tabs(["Chat Interface", "Recent Queries"])
     
@@ -99,14 +113,16 @@ def main():
     with main_tab2:
         # Query history interface
         display_query_history()
+        # st.write(st.experimental_user["user_name"])
+        # print("username",st.experimental_user["user_name"])
         #pass
-    
+
 def image_png(file, img_width, img_height):
 
     loc = os.path.abspath(file)
 
     # Create figure
-    fig = go.Figure()
+    fig = plotly.graph_objects.Figure()
 
     # Constants
     img_width = img_width
@@ -116,7 +132,7 @@ def image_png(file, img_width, img_height):
     # Add invisible scatter trace.
     # This trace is added to help the autoresize logic work.
     fig.add_trace(
-        go.Scatter(
+        plotly.graph_objects.Scatter(
             x=[0, img_width * scale_factor],
             y=[0, img_height * scale_factor],
             mode="markers",
@@ -171,9 +187,14 @@ def display_query_history():
     #st.divider()
     
     # Get the current user
-    current_user = st.experimental_user["user_name"]
+    #current_user = st.experimental_user["user_name"]
+    if hasattr(st, "experimental_user") and st.experimental_user and "user_name" in st.experimental_user:
+        current_user = st.experimental_user["user_name"]
+        
+    else:
+        current_user = session.sql(f'SELECT CURRENT_USER()').collect()[0][0]
     # st.markdown()
-    #st.write("User_Name:", current_user)
+    # st.write("User_Name:", current_user)
     # Query to fetch the user's history
     query = f"""
     SELECT  user_id, raw_query, query_time
@@ -216,8 +237,16 @@ def reset_session_state():
     st.session_state.analyst_time = 0
     st.session_state.actual_analyst_time =0
     st.session_state.cancel_execution = False  ## Added for stop button 
-    st.session_state.yaml_file_name = ''
-    
+# def reset_session_state(state):
+#     state['messages'] = []
+#     state['active_suggestion'] = None
+#     state['content'] = {}
+#     state['insight_generation'] = False
+#     state['follow_up_suggestions'] = False
+#     state['analyst_time'] = 0
+#     state['actual_analyst_time'] = 0
+#     state['cancel_execution'] = False  
+
 def enable_insight_generation():
     st.session_state.insight_generation = not st.session_state.insight_generation
     
@@ -299,8 +328,9 @@ def handle_error_notifications():
 def process_user_input(prompt: str):
     
     ### Normalize the input prompt for consistent comparison
+    print("process_user_input")
     normalized_prompt = prompt.strip().lower()
-
+    print("normalized_prompt" ,normalized_prompt)
     # Check if this question was asked before in the session
     previous_response = None
     previous_user_msg_index = None
@@ -312,7 +342,7 @@ def process_user_input(prompt: str):
                 # Look for the next analyst response after this user message
                 if idx + 1 < len(st.session_state.messages) and st.session_state.messages[idx + 1]["role"] == "analyst":
                     previous_response = st.session_state.messages[idx + 1]
-                    #st.write(idx,previous_response)
+                    st.write(idx,previous_response)
                 break
 
     ### If the question was asked before and has a response with SQL, reuse it
@@ -334,6 +364,7 @@ def process_user_input(prompt: str):
             st.session_state.messages.append(new_user_message)
             with st.chat_message("user"):
                 user_msg_index = len(st.session_state.messages) - 1
+                print("enetering the display message thru process")
                 display_message(new_user_message["content"], user_msg_index)
 
             ### Reuse the previous analyst response
@@ -400,9 +431,22 @@ def process_user_input(prompt: str):
             if not st.session_state.cancel_execution:
                 start_time = time.time()
                 # Pass the entire conversation history (including previous messages) to the API
-                response, error_msg = get_analyst_response(st.session_state.messages)
-                #st.write("RESPONSE: ", response)
-                time.sleep(10)
+                #response, error_msg = get_analyst_response(st.session_state.messages) 
+                
+                ## Validate the message sequence
+                validated_messages = validate_message_sequence(st.session_state.messages)
+                filtered_messages = []
+                for d in validated_messages:
+                    filtered_d = {k: v for k, v in d.items() if k not in ["judge_result", "llm_insights", "result_df", "insights_enabled"]}
+                    filtered_messages.append(filtered_d)
+                print("filtered_messages",filtered_messages)
+                result= session.call("RAP_UAT.RBP_REPORTS.get_analyst_response", filtered_messages)
+                if isinstance(result, str):
+                    result = json.loads(result)
+
+                # Now you can safely access the keys
+                response = result.get("parsed_content")
+                error_msg = result.get("error_msg")
                 # Check if execution was cancelled during API call
                 if st.session_state.cancel_execution:
                     # Don't add another message here - just rerun
@@ -415,13 +459,13 @@ def process_user_input(prompt: str):
                     analyst_message = {
                         "role": "analyst",
                         "content": response["message"]["content"],
-                        "request_id": response["request_id"],
+                        # "request_id": response["request_id"],
                     }
                 else:
                     analyst_message = {
                         "role": "analyst",
                         "content": [{"type": "text", "text": error_msg}],
-                        "request_id": response["request_id"],
+                        # "request_id": response["request_id"],
                     }
                     st.session_state["fire_API_error_notify"] = True
                 
@@ -433,6 +477,8 @@ def process_user_input(prompt: str):
                     if (last_chat_message_contains_sql()):
                         if not st.session_state.cancel_execution:
                             get_and_display_smart_followup_suggestions()
+            # else:
+            #     return {"request_id": "cancelled"}, "Operation cancelled by user."
     st.rerun()
 
 ##
@@ -486,117 +532,124 @@ def validate_message_sequence(messages):
         validated_messages = validated_messages[:-1]
     
     return validated_messages
-
-
-def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
-    """
-    Send chat history to the Cortex Analyst API and return the response.
-
-    Args:
-        messages (List[Dict]): The conversation history.
-
-    Returns:
-        Optional[Dict]: The response from the Cortex Analyst API.
-    """
-    
-    ## Check if execution has been cancelled
-    if st.session_state.cancel_execution:
-        return {"request_id": "cancelled"}, "Operation cancelled by user."
-    
-    ## Validate the message sequence
-    validated_messages = validate_message_sequence(messages)
-
-    
-    # Prepare the request body with the user's prompt and full conversation history
-    filtered_messages = [{k: v for k,v in d.items() if k not in ["judge_result","llm_insights","result_df","insights_enabled"]} for d in messages]
-    request_body = {
-        "messages": filtered_messages,  # Pass the entire conversation history here
-        
-       # "semantic_model_file": f"@{st.session_state.selected_semantic_model_path}",
-        
-        "semantic_models": [
-        {"semantic_model_file": "@RAP_UAT.RBP_REPORTS.RBP_KIPI_STAGE/rbp_semantic_gold.yaml"}
-        ]
-    }
-
-    ## diversion_prompt = f"""Given a user input, your job is to identify whether the input requires a forecasting/prediction or not. 
-    ## If we require forecasting/prediction return output as forecasting:1, Else just return forecasting:0. 
-    ## user input : {filtered_messages[-1]['content'][0]['text']} """
-
-    ## completion_response = cortex.complete(
-    ##        model="llama3.1-70b",
-    ##        prompt=diversion_prompt,
-    ##        session=session,
-    ##        options=cortex.CompleteOptions(temperature=0.2),
-    ##    )
-
-    # hardcoding forecasting variable until forecasting features are implemented
-    completion_response = 'forecasting:0'
-
-    if "forecasting:1" in completion_response:
-        parsed_content = {
-            "message": {
-              "role": "analyst",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "This is our interpretation of your question:\n\n Forecast the sales for next 30 days"
-                },
-                {
-                  "type": "sql",
-                  "statement": "SELECT * FROM Forecast_Results where ts >= '2025-05-01' and ts <= '2025-05-30';",
-                  "confidence": {
-                    "verified_query_used": None
-                  }
-                }
-              ]
-            },
-            "request_id": "e54379db-9cef-4b96-a081-7925a810a6ed"
-          }
-
-        return parsed_content, None
-    else:
-        # Send a POST request to the Cortex Analyst API endpoint
-        # Adjusted to use positional arguments as per the API's requirement
-        analyst_time_start_time =time.time()
-        resp = _snowflake.send_snow_api_request(
-            "POST",  # method
-            API_ENDPOINT,  # path
-            {},  # headers
-            {},  # params
-            request_body,  # body
-            None,  # request_guid
-            API_TIMEOUT,  # timeout in milliseconds
-        )
-    
-        analyst_time_end_time =time.time()
-        st.session_state.actual_analyst_time =analyst_time_end_time -analyst_time_start_time
-
-        st.session_state["debug_variable"] = completion_response
             
-        # Content is a string with serialized JSON object
-        parsed_content = json.loads(resp["content"])
+# def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
+#     """
+#     Send chat history to the Cortex Analyst API and return the response.
+
+#     Args:
+#         messages (List[Dict]): The conversation history.
+
+#     Returns:
+#         Optional[Dict]: The response from the Cortex Analyst API.
+#     """
     
-        # Check if the response is successful
-        if resp["status"] < 400:
-            # Return the content of the response as a JSON object
-            return parsed_content, None
-        else:
-            st.session_state.content['resp'] = resp
-            st.session_state.content['parsed_content'] = resp
+#     ## Check if execution has been cancelled
+#     if st.session_state.cancel_execution:
+#         return {"request_id": "cancelled"}, "Operation cancelled by user."
+    
+#     ## Validate the message sequence
+#     validated_messages = validate_message_sequence(messages)
+
+    
+#     # Prepare the request body with the user's prompt and full conversation history
+#     filtered_messages = [{k: v for k,v in d.items() if k not in ["judge_result","llm_insights","result_df","insights_enabled"]} for d in messages]
+#     request_body = {
+#         "messages": filtered_messages,  # Pass the entire conversation history here
+        
+#        # "semantic_model_file": f"@{st.session_state.selected_semantic_model_path}",
+        
+#         "semantic_models": {"semantic_model_file": "@RAP_UAT.RBP_REPORTS.RBP_KIPI_STAGE/rbp_semantic_gold.yaml"},
+#     }
+
+#     ## diversion_prompt = f"""Given a user input, your job is to identify whether the input requires a forecasting/prediction or not. 
+#     ## If we require forecasting/prediction return output as forecasting:1, Else just return forecasting:0. 
+#     ## user input : {filtered_messages[-1]['content'][0]['text']} """
+
+#     ## completion_response = cortex.complete(
+#     ##        model="llama3.1-70b",
+#     ##        prompt=diversion_prompt,
+#     ##        session=session,
+#     ##        options=cortex.CompleteOptions(temperature=0.2),
+#     ##    )
+
+#     # hardcoding forecasting variable until forecasting features are implemented
+#     completion_response = 'forecasting:0'
+
+#     if "forecasting:1" in completion_response:
+#         resp = {
+#             "message": {
+#               "role": "analyst",
+#               "content": [
+#                 {
+#                   "type": "text",
+#                   "text": "This is our interpretation of your question:\n\n Forecast the sales for next 30 days"
+#                 },
+#                 {
+#                   "type": "sql",
+#                   "statement": "SELECT * FROM Forecast_Results where ts >= '2025-05-01' and ts <= '2025-05-30';",
+#                   "confidence": {
+#                     "verified_query_used": None
+#                   }
+#                 }
+#               ]
+#             },
+#             "request_id": "e54379db-9cef-4b96-a081-7925a810a6ed"
+#           }
+
+#         return resp,None
+#     else:
+#         # Send a POST request to the Cortex Analyst API endpoint
+#         # Adjusted to use positional arguments as per the API's requirement
+#         analyst_time_start_time =time.time()
+#         # resp = _snowflake.send_snow_api_request(
+#         #     "POST",  # method
+#         #     API_ENDPOINT,  # path
+#         #     {},  # headers
+#         #     {},  # params
+#         #     request_body,  # body
+#         #     None,  # request_guid
+#         #     API_TIMEOUT,  # timeout in milliseconds
+#         # )
+#         host_name = session.conf.get("host")
+#         token = session.conf.get("rest").token
+#         resp = requests.post(
+#             url=f"https://{host_name}{API_ENDPOINT}",
+#             json=request_body,
+#             headers={
+#                 "Authorization": f'Snowflake Token="{token}"',
+#                 "Content-Type": "application/json",
+#             },
+#         )
+#         print(resp)
+        
+#         analyst_time_end_time =time.time()
+#         st.session_state.actual_analyst_time =analyst_time_end_time -analyst_time_start_time
+
+#         st.session_state["debug_variable"] = completion_response
             
-            # Craft readable error message
-            error_msg = f"""
-    🚨 An Analyst API error has occurred 🚨
+#         # Content is a string with serialized JSON object
+#         #parsed_content = json.loads(resp["content"])
     
-    * response code: `{resp['status']}`
-    * request-id: `{parsed_content['request_id']}`
-    * error code: `{parsed_content['error_code']}`
+#         # Check if the response is successful
+#         if resp.status_code < 400:
+#             # Return the content of the response as a JSON object
+#             return resp, None
+#         else:
+#             st.session_state.content['resp'] = resp
+#             #st.session_state.content['parsed_content'] = resp
+            
+#             # Craft readable error message
+#             error_msg = f"""
+#     🚨 An Analyst API error has occurred 🚨
     
-    Message:
+#     * response code: `{resp.status_code}`
+#     * error code: `{resp.raise_for_status()}`
     
-            """
-            return parsed_content, error_msg
+#     Message:
+    
+#             """
+#             return resp, error_msg
 
 ### Set of functions to display suggestions for follow up questions
 
@@ -753,10 +806,12 @@ def display_conversation():
     """
     Display the conversation history between the user and the assistant.
     """
+    print("messages..................", st.session_state.messages)
     for idx, message in enumerate(st.session_state.messages):
         role = message["role"]
         content = message["content"]
         with st.chat_message(role):
+            print("idx..................", idx)
             display_message(content, idx)
 
 
@@ -783,11 +838,14 @@ def display_message(content: List[Dict[str, str]], message_index: int):
             # Display the SQL query and results
             display_sql_query(item, message_index)
             # st.write(session.get_current_user())
-            # Add thumbs-up and thumbs-down buttons for feedback
-            thumbs_up, thumbs_down, email = st.columns([1, 1, 1])
-
+            #Add thumbs-up and thumbs-down buttons for feedback
+            thumbs_up, thumbs_down = st.columns([1, 1])
+            if hasattr(st, "experimental_user") and st.experimental_user and "user_name" in st.experimental_user:
+                current_user = st.experimental_user["user_name"]
+            else:
+                current_user = session.sql(f'SELECT CURRENT_USER()').collect()[0][0]
             ################
-            save_query(st.experimental_user["user_name"],
+            save_query(current_user,
                         st.session_state.messages[message_index]["content"][0]["text"],
                         item["statement"],st.session_state.messages[message_index-1]["content"][0]["text"]
                      )    
@@ -803,7 +861,6 @@ def display_sql_query(item: dict, message_index: int):
         message_index (int): The index of the message.
     """
     sql = item["statement"]
-    
     # Display the SQL query
     with st.expander("SQL Query", expanded=False):
         st.code(sql, language="sql")
@@ -811,14 +868,59 @@ def display_sql_query(item: dict, message_index: int):
     # Display the results of the SQL query
     with st.expander("Results", expanded=True):
         content = st.session_state.messages[message_index]['content']
+        print("content", content)
+        # print("initial content", content)
         with st.spinner("Running SQL..."):
             has_result_df = any("result_df" in d for d in content)
-            if has_result_df is False:        
-                df, err_msg = get_query_exec_result(sql, message_index)
+            print("has_result_df", has_result_df)
+            if has_result_df is False:   
+                df1, err_msg = get_query_exec_result(sql, message_index)
+                #print("sql",sql)
+                # result = session.call("RAP_UAT.RBP_REPORTS.execute_query", sql)
+                # print(type(result))
+                # #print(result)
+                # df1 = None
+                # if isinstance(result, dict) and "error" in result:
+                #     print("Error:", result["error"])
+                # elif isinstance(result, str):
+                #     # Result is a JSON string
+
+                #     if result.strip() == "" or result.strip() == "[]":
+                #         print("No data returned from stored procedure.")
+                #         df1 = pd.DataFrame()
+                #     else:
+                #         try:
+                #             data = json.loads(result)
+                #             # Then, convert to DataFrame
+                #             df1 = pd.DataFrame(data)
+                #             for item in content:
+                #                 if item.get("type") == "sql":
+                #                     item["result_df"] = df1
+                #                     item["insights_enabled"] = st.session_state.insight_generation
+                #             st.session_state.messages[message_index]['content'] = content
+                #         except Exception as e:
+                #             print("Could not parse JSON string:", e)
+                #             print("Raw result:", result)
+                    
+                # elif isinstance(result, list):
+                #     # Result is a list of dicts (VARIANT array)
+                #     df1 = pd.DataFrame(result)
+                #     for item in content:
+                #         if item.get("type") == "sql":
+                #             item["result_df"] = df1
+                #             item["insights_enabled"] = st.session_state.insight_generation
+                #     st.session_state.messages[message_index]['content'] = content
+                # else:
+                #     print("Unexpected return type from stored procedure:", type(result))
+                #     for item in content:
+                #         if item.get("type") == "sql":
+                #             item["result_df"] = None
+                #             item["insights_enabled"] = st.session_state.insight_generation
+                #     st.session_state.messages[message_index]['content'] = content
             else:
                 # Will get the value of 'result_df' if it exists, else None
                 df_json = next((d["result_df"] for d in content if "result_df" in d), None)
-                df = pd.read_json(df_json)
+                df1 = pd.read_json(df_json)
                 
                 # Define known date fields
                 date_fields = [
@@ -828,62 +930,66 @@ def display_sql_query(item: dict, message_index: int):
                 ]
     
                 # Convert known date columns back to datetime
-                for col in df.columns:
+                for col in df1.columns:
                     if col in date_fields:
                         try:
-                            df[col] = pd.to_datetime(df[col])
+                            df1[col] = pd.to_datetime(df1[col])
                         except Exception as e:
                             # If conversion fails, log it but continue
                             print(f"Failed to convert column {col} to datetime: {e}")
                 
-            if df is None:
+            if df1 is None:
                 st.error(f"Could not execute generated SQL query. Error: {err_msg}")
                 return
 
-            if df.empty:
+            if df1.empty:
                 st.write("Query returned no data")
                 return
-            total_bytes = df.memory_usage(index=True).sum()
-            # Convert bytes to megabytes (1 MB = 1024 * 1024 bytes)
-            bytes_in_mb = 1024 * 1024
-            size_in_mb = total_bytes / bytes_in_mb
+            # total_bytes = df1.memory_usage(index=True).sum()
+            # # Convert bytes to megabytes (1 MB = 1024 * 1024 bytes)
+            # bytes_in_mb = 1024 * 1024
+            # size_in_mb = total_bytes / bytes_in_mb
             
             # Print the result
             # print(f"DataFrame size in Bytes: {total_bytes}")
             # print(f"DataFrame size in MB: {size_in_mb:.2f}")
-            total_records = len(df)
-            if size_in_mb <= 32:
-                df= df         
-            else:
-                st.write(f"***:red[Your request for data resulted in {total_records} records. Displaying records is limited to 50k records. You can download the complete data using the e-mail function]***")
-                df= df[:50000]
+            # total_records = len(df1)
+            # if size_in_mb <= 32:
+            #     df = df1         
+            # else:
+            #     st.write(f"***:red[Your request for data resulted in {total_records} records. Displaying records is limited to 50k records. You can download the complete data using the e-mail function]***")
+            #     df= df1[:50000]
             # Show query results in three tabs - added insights tab
             # data_tab, chart_tab, insights_tab, LLM_Judge_Rating_tab = st.tabs(["Data 📄", "Chart 📈", "Insights 💡", "LLM_Judge_Rating :star:"])
-            data_tab, chart_tab, insights_tab, LLM_Judge_Rating_tab = st.tabs([  
-                "Data 📄",  
-                "Chart 📈",  
-                "Insights 💡",  
-                "Insights Evaluation ⭐"  
+            # data_tab, chart_tab, insights_tab, LLM_Judge_Rating_tab = st.tabs([  
+            #     "Data 📄",  
+            #     "Chart 📈",  
+            #     "Insights 💡",  
+            #     "Insights Evaluation ⭐"  
+            # ]) 
+            df=df1 
+            data_tab, insights_tab = st.tabs([  
+                "Data 📄",   
+                "Insights 💡" 
             ])  
-            
             # Content inside each tab  
             with data_tab:  
                 st.info("This tab contains data generated by sql query.")  
             
-            with chart_tab:  
-                st.info("This tab provides chart-related insights in the form of visual representations of the SQL query results to gain a deeper understanding of trends and patterns within the data.")  
+            # with chart_tab:  
+            #     st.info("This tab provides chart-related insights in the form of visual representations of the SQL query results to gain a deeper understanding of trends and patterns within the data.")  
             
             with insights_tab:  
                 st.info("This tab highlights the key insights derived from the SQL query outputs. It dives into the key trends and patterns, notable outliers or anomalies, business implications and actionable insights that can aid in decision-making.") 
             
-            with LLM_Judge_Rating_tab:  
-                st.info("This tab evaluates the quality of the insights generated by the SQL queries,using ratings and feedback from the LLM as a benchmark. It considers the relevance,depth of insight, clarity and readability and actionability")
+            # with LLM_Judge_Rating_tab:  
+            #     st.info("This tab evaluates the quality of the insights generated by the SQL queries,using ratings and feedback from the LLM as a benchmark. It considers the relevance,depth of insight, clarity and readability and actionability")
             with data_tab:
                 st.dataframe(df, use_container_width=True, hide_index=True)
 
-            with chart_tab:
-                #st.markdown('Charts')
-                display_charts_tab(df, message_index)
+            # with chart_tab:
+            #     #st.markdown('Charts')
+            #     display_charts_tab(df, message_index)
                 
             with insights_tab:
                # st.markdown('Generated insights based on data',help ='Generated insights based on data')
@@ -896,7 +1002,10 @@ def display_sql_query(item: dict, message_index: int):
                     if has_llm_insights is False:
                         if st.session_state.insight_generation:
                             if item.get("insights_enabled", False) is True:
-                                insights = generate_insights_with_snowflake_complete(df, user_query, message_index)
+                                #insights = generate_insights_with_snowflake_complete(df, user_query, message_index)
+                                json_data = df.to_json(orient='records')
+                                #print("json_data",type(json_data))
+                                insights = session.call("RAP_UAT.RBP_REPORTS.generate_insights", json_data, user_query)
                             else:
                                 insights = "Insights generation has been disabled during this conversation"
                         else:
@@ -906,22 +1015,22 @@ def display_sql_query(item: dict, message_index: int):
                         insights = next((d["llm_insights"] for d in content if "llm_insights" in d), None)  
                     st.markdown(insights)
             
-            with LLM_Judge_Rating_tab:
-                 #st.markdown('Rating the Generated insights')
-                 with st.spinner("Evaluating insights..."):
-                    has_judge_result = any("judge_result" in d for d in content)
-                    if has_judge_result is False: 
-                        if st.session_state.insight_generation:
-                            if item.get("insights_enabled", False) is True:
-                                rating=judge_LLM(df,insights,user_query,message_index)
-                            else:
-                                rating = "Rating generation has been disabled during this conversation"
-                        else:
-                            rating = "Rating generation has been disabled during this conversation"
-                    else:
-                        # Will get the value of 'result_df' if it exists, else None
-                        rating = next((d["judge_result"] for d in content if "judge_result" in d), None)  
-                    st.markdown(rating)
+            # with LLM_Judge_Rating_tab:
+            #      #st.markdown('Rating the Generated insights')
+            #      with st.spinner("Evaluating insights..."):
+            #         has_judge_result = any("judge_result" in d for d in content)
+            #         if has_judge_result is False: 
+            #             if st.session_state.insight_generation:
+            #                 if item.get("insights_enabled", False) is True:
+            #                     rating=judge_LLM(df,insights,user_query,message_index)
+            #                 else:
+            #                     rating = "Rating generation has been disabled during this conversation"
+            #             else:
+            #                 rating = "Rating generation has been disabled during this conversation"
+            #         else:
+            #             # Will get the value of 'result_df' if it exists, else None
+            #             rating = next((d["judge_result"] for d in content if "judge_result" in d), None)  
+            #         st.markdown(rating)
 
 
             # Add feedback section
@@ -929,13 +1038,14 @@ def display_sql_query(item: dict, message_index: int):
             # st.subheader("Provide Feedback")
             
             # Prepare the user and query information
-            user_name = st.experimental_user["user_name"]
+            # user_name = st.experimental_user["user_name"]
+            user_name = session.sql(f'SELECT CURRENT_USER()').collect()[0][0]
             refined_query = st.session_state.messages[message_index]["content"][0]["text"]
             raw_query = st.session_state.messages[message_index-1]["content"][0]["text"]
             
             st.markdown('How do you like the response?')
             # Add thumbs-up and thumbs-down buttons for feedback
-            col1, col2, col3 = st.columns([1,1,1])
+            col1, col2 = st.columns([1,1])
 
             
             # Initialize session state for feedback if not present
@@ -943,9 +1053,9 @@ def display_sql_query(item: dict, message_index: int):
                 st.session_state[f"feedback_active_{message_index}"] = False
                 st.session_state[f"feedback_type_{message_index}"] = None
                 
-            if f"trigger_email_{message_index}" not in st.session_state:
-                st.session_state[f"trigger_email_{message_index}"] = False
-                st.session_state[f"email_status_{message_index}"] = None
+            # if f"trigger_email_{message_index}" not in st.session_state:
+            #     st.session_state[f"trigger_email_{message_index}"] = False
+            #     st.session_state[f"email_status_{message_index}"] = None
      
             
             # Thumbs up button
@@ -966,85 +1076,94 @@ def display_sql_query(item: dict, message_index: int):
                     # Mandatory feedback for thumbs down
                     st.rerun()
                     
-            with col3:
-                if st.button("✉️ Email", key=f"email_{message_index}"):
-                    st.session_state[f"trigger_email_{message_index}"] = True
-                    st.session_state[f"email_status_{message_index}"] = "triggered"
-                    #st.session_state[f"email_sent_{message_index}"] = "email_to_sent"
-                    st.rerun()
-            if st.session_state[f"trigger_email_{message_index}"]:
-                # Set it to a non-triggering value BEFORE sending the email.
-                # This prevents multiple emails on subsequent reruns.
-                st.session_state[f"trigger_email_{message_index}"] = None
-                st.session_state[f"email_status_{message_index}"] = "preparing"
-                file_name, file_url = None, None
-                try:
-                    # Use a spinner while file is being prepared and uploaded
-                    with st.spinner("Preparing report file..."):
-                         file_name, file_url = send_full_reports(session, message_index)
+            # with col3:
+            #     if st.button("✉️ Email", key=f"email_{message_index}"):
+            #         st.session_state[f"trigger_email_{message_index}"] = True
+            #         st.session_state[f"email_status_{message_index}"] = "triggered"
+            #         #st.session_state[f"email_sent_{message_index}"] = "email_to_sent"
+            #         st.rerun()
+            # if st.session_state[f"trigger_email_{message_index}"]:
+            #     # Set it to a non-triggering value BEFORE sending the email.
+            #     # This prevents multiple emails on subsequent reruns.
+            #     st.session_state[f"trigger_email_{message_index}"] = None
+            #     st.session_state[f"email_status_{message_index}"] = "preparing"
+            #     file_name, file_url = None, None
+            #     try:
+            #         # Use a spinner while file is being prepared and uploaded
+            #         with st.spinner("Preparing report file..."):
+            #              file_name, file_url = send_full_reports(session, message_index)
     
-                    # Check if the function successfully returned file details
-                    if file_name and file_url: # Checks if both are not None and not empty strings
-                        st.session_state[f"email_status_{message_index}"] = "sending"
-                        extracted_texts = [] # Default text if not found
-                        user_prompt_text = ""
+            #         # Check if the function successfully returned file details
+            #         if file_name and file_url: # Checks if both are not None and not empty strings
+            #             st.session_state[f"email_status_{message_index}"] = "sending"
+            #             extracted_texts = [] # Default text if not found
+            #             user_prompt_text = ""
 
-                        # Check if there is a previous message and if it's a user message
-                        if message_index > 0:
-                            previous_message = st.session_state.messages[message_index - 1]
-                            # Assuming user messages have role 'user'
-                            if previous_message.get('role') == 'user':
-                                content_list = previous_message.get('content')
-                                for item in content_list:
-                                    extracted_texts.append(item['text'])
-                        if extracted_texts:
-                            user_prompt_text = "\n".join(extracted_texts)
+            #             # Check if there is a previous message and if it's a user message
+            #             if message_index > 0:
+            #                 previous_message = st.session_state.messages[message_index - 1]
+            #                 # Assuming user messages have role 'user'
+            #                 if previous_message.get('role') == 'user':
+            #                     content_list = previous_message.get('content')
+            #                     for item in content_list:
+            #                         extracted_texts.append(item['text'])
+            #             if extracted_texts:
+            #                 user_prompt_text = "\n".join(extracted_texts)
         
-                        email_body = f'''Hello {st.experimental_user["user_name"]},
-                                    We are pleased to know you found the results of RAP Case Query Agent useful. 
-                                    <br>Your Query Was:<br>
-                                    "{user_prompt_text}"
-                                    <br><br>
-                                    Here is the URL to download a CSV version of the result - <a href="{file_url}">{file_name}</a> 
-                                    Thanks for using the AI Agent, hope you found it useful!'''
-                        #to_email = 'SAgarwal@national.aaa.com'
-                        current_user_email = st.experimental_user["email"]
-                        to_email = (f"{current_user_email},SAgarwal@national.aaa.com,MJames@national.aaa.com")
-                        email_subject = 'Snowflake RAP Case Query Agent | Export | {}'.format(datetime.utcnow().strftime('%Y-%m-%d'))
-                            
-                        session.sql("CALL SYSTEM$SEND_EMAIL('RBP_EMAIL_INT', '{}', '{}', '{}', '{}');".format(to_email, email_subject,email_body, "text/html")).collect()
-                        st.session_state[f"email_status_{message_index}"] = "sent"
-                    else:
-                        st.session_state[f"email_status_{message_index}"] = "no_data_or_error"
-                #     st.write("There are no records for the user input to be sent as an email")# Mandatory feedback for thumbs down
-                except Exception as e:
-                    # Catch any errors during the SYSTEM$SEND_EMAIL call
-                    st.error(f"Failed to send email via SYSTEM$SEND_EMAIL: {e}")
-                    st.session_state[f"email_status_{message_index}"] = "failed" # Final status: failed send
-            current_status = st.session_state.get(f"email_status_{message_index}")
-            if current_status == "triggered":
-                 # This state is very brief, might not be seen
-                 st.info("Email process triggered...")
-            elif current_status == "preparing":
-                 # Spinner handles this, but you could add text
-                 pass # Spinner is running
-            elif current_status == "sending":
-                 # Spinner handles this
-                 pass # Spinner is running
-            elif current_status == "sent":
-                 st.success("✅ Email sent successfully!")
-                 email_log_history(st.experimental_user["user_name"], 
-                                st.experimental_user["email"],
-                        st.session_state.messages[message_index-1]["content"][0]["text"],
-                       st.session_state.messages[message_index]["content"][0]["text"],
-                        st.session_state.messages[message_index]["content"][1]["statement"]
-                     ) 
-            elif current_status == "failed":
-                 # Error message shown by the except block
-                 st.error("❌ Email sending failed.")
-            elif current_status == "no_data_or_error":
-                 # Warning/Error shown by send_full_reports or this block
-                 st.warning("ℹ️ Email skipped: No data or error during preparation.")
+            #             email_body = f'''Hello user,
+            #                         We are pleased to know you found the results of RAP Case Query Agent useful. 
+            #                         <br>Your Query Was:<br>
+            #                         "{user_prompt_text}"
+            #                         <br><br>
+            #                         Here is the URL to download a CSV version of the result - <a href="{file_url}">{file_name}</a> 
+            #                         Thanks for using the AI Agent, hope you found it useful!'''
+            #             #to_email = 'SAgarwal@national.aaa.com'
+            #             user_name = session.sql(f'SELECT CURRENT_USER()').collect()[0][0]
+
+            #             if user_name: 
+            #                 current_user_email = user_name
+            #                 to_email = (f"{current_user_email},SAgarwal@national.aaa.com,MJames@national.aaa.com")
+            #                 email_subject = 'Snowflake RAP Case Query Agent | Export | {}'.format(datetime.utcnow().strftime('%Y-%m-%d'))
+                                
+            #                 session.sql("CALL SYSTEM$SEND_EMAIL('RBP_EMAIL_INT', '{}', '{}', '{}', '{}');".format(to_email, email_subject,email_body, "text/html")).collect()
+            #                 st.session_state[f"email_status_{message_index}"] = "sent"
+            #             else:
+            #                 st.write("Email cannot be send outside Snowflake.")
+            #         else:
+            #             st.session_state[f"email_status_{message_index}"] = "no_data_or_error"
+            #     #     st.write("There are no records for the user input to be sent as an email")# Mandatory feedback for thumbs down
+            #     except Exception as e:
+            #         # Catch any errors during the SYSTEM$SEND_EMAIL call
+            #         st.error(f"Failed to send email via SYSTEM$SEND_EMAIL: {e}")
+            #         st.session_state[f"email_status_{message_index}"] = "failed" # Final status: failed send
+            # current_status = st.session_state.get(f"email_status_{message_index}")
+            # if current_status == "triggered":
+            #      # This state is very brief, might not be seen
+            #      st.info("Email process triggered...")
+            # elif current_status == "preparing":
+            #      # Spinner handles this, but you could add text
+            #      pass # Spinner is running
+            # elif current_status == "sending":
+            #      # Spinner handles this
+            #      pass # Spinner is running
+            # elif current_status == "sent":
+            #      st.success("✅ Email sent successfully!")
+            #      if hasattr(st, "experimental_user") and st.experimental_user and "user_name" in st.experimental_user:
+            #         user_name = st.experimental_user["user_name"]
+            #      else:
+            #         user_name = getpass.getuser()
+            #      email_log_history(user_name, 
+            #                     None,
+            #             st.session_state.messages[message_index-1]["content"][0]["text"],
+            #            st.session_state.messages[message_index]["content"][0]["text"],
+            #             st.session_state.messages[message_index]["content"][1]["statement"]
+            #          ) 
+            # elif current_status == "failed":
+            #      # Error message shown by the except block
+            #      st.error("❌ Email sending failed.")
+            # elif current_status == "no_data_or_error":
+            #      # Warning/Error shown by send_full_reports or this block
+            #      st.warning("ℹ️ Email skipped: No data or error during preparation.")
                 # Display feedback form if active
             if st.session_state[f"feedback_active_{message_index}"]:
                 feedback_type = st.session_state[f"feedback_type_{message_index}"]
@@ -1053,7 +1172,7 @@ def display_sql_query(item: dict, message_index: int):
                     st.markdown(f"### {'Optional Feedback' if feedback_type == 'thumbs_up' else 'Please tell us what went wrong'}")
                     
                     # Create tabs for different feedback categories
-                    feedback_tabs = st.tabs(["Overall", "SQL Query", "Data Results", "Charts", "Insights", "Insights Evaluation"])
+                    feedback_tabs = st.tabs(["Overall", "SQL Query", "Data Results", "Insights"])
                     
                     # Initialize feedback dictionary
                     feedback_data = {
@@ -1090,15 +1209,15 @@ def display_sql_query(item: dict, message_index: int):
                         )
                     
                     # Charts feedback tab
-                    with feedback_tabs[3]:
-                        feedback_data["chart"] = st.text_area(
-                            "Charts feedback",
-                            key=f"chart_feedback_{message_index}",
-                            placeholder="Please share feedback about the charts..."
-                        )
+                    # with feedback_tabs[3]:
+                    #     feedback_data["chart"] = st.text_area(
+                    #         "Charts feedback",
+                    #         key=f"chart_feedback_{message_index}",
+                    #         placeholder="Please share feedback about the charts..."
+                    #     )
                     
                     # Insights feedback tab
-                    with feedback_tabs[4]:
+                    with feedback_tabs[3]:
                         feedback_data["insight"] = st.text_area(
                             "Insights feedback",
                             key=f"insight_feedback_{message_index}",
@@ -1106,12 +1225,12 @@ def display_sql_query(item: dict, message_index: int):
                         )
                     
                     # LLM Rating feedback tab
-                    with feedback_tabs[5]:
-                        feedback_data["llm_rating"] = st.text_area(
-                            "Insights Evaluation feedback",
-                            key=f"llm_rating_feedback_{message_index}",
-                            placeholder="Please share feedback about the Insights Evaluation..."
-                        )
+                    # with feedback_tabs[5]:
+                    #     feedback_data["llm_rating"] = st.text_area(
+                    #         "Insights Evaluation feedback",
+                    #         key=f"llm_rating_feedback_{message_index}",
+                    #         placeholder="Please share feedback about the Insights Evaluation..."
+                    #     )
                     
                     # Add thumbs-up and thumbs-down buttons for feedback
                     coll1, coll2 = st.columns([1,1], gap='small')
@@ -1200,7 +1319,6 @@ def get_query_exec_result(query: str, message_index: int) -> Tuple[Optional[pd.D
         return None, str(e)
 
 def send_full_reports(session,message_index: int):
-    
     temp_file_path = None
     try:
         # view_name = 'FILES_DB.CSV_FILES.RESULTS' #Provide Fully Qualified Name of the View or Table.
@@ -1313,6 +1431,8 @@ def generate_insights_with_snowflake_complete(df: pd.DataFrame, user_query: str,
         st.session_state.messages[message_index]['content'] = content
         return error_message
 
+
+########
 
 def save_detailed_feedback(user_id: str, raw_query: str, refined_query: str, sql_query: str, 
                            feedback_type: str, feedback_data: dict, insight_text: str = None, chart_desc: list = None):
@@ -1642,5 +1762,7 @@ def display_charts_tab(df: pd.DataFrame, message_index: int) -> None:
 
 
 if __name__ == "__main__":
+    session = Session.builder.configs(connection_parameters).create()
     main()
+    
     #st.write(st.session_state["messages"])
