@@ -106,8 +106,8 @@ def create_diff_chunks(code_to_review) -> list[str]:
 
     # --- New: Define a directory to save your chunks ---
     # This directory will be created in the GitHub Actions runner's workspace
-    OUTPUT_CHUNKS_DIR = "_temp_diff_chunks"
-    os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True) # Ensure the directory exists
+    
+    #os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True) # Ensure the directory exists
     if not full_diff:
         print("No diff found or git error occurred.")
         return []
@@ -131,7 +131,12 @@ def create_diff_chunks(code_to_review) -> list[str]:
     chunk_counter = 0
     for patch in patches:
         # We only care about Python files for this logic
-        if not patch.header.new_path.endswith(".py"):
+        original_file_path = patch.header.new_path
+        base_filename = os.path.basename(original_file_path) # Just the file name, e.g., 'my_script.py'
+
+        # Filter for Python or SQL files (or other relevant types)
+        if not (original_file_path.endswith(".py") or original_file_path.endswith(".sql")):
+            print(f" -> Skipping non-.py/.sql file: {original_file_path}")
             continue
 
         file_diff_str = str(patch)
@@ -144,36 +149,52 @@ def create_diff_chunks(code_to_review) -> list[str]:
             final_chunks.append(file_diff_str)
             # --- NEW: Save this chunk to a file ---
             # Use a unique name for each chunk
-            chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"diff_chunk_{chunk_counter}.diff")
+            chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"{base_filename}.diff")
             with open(chunk_filename, "w") as f:
                 f.write(file_diff_str)
-            print(f" -> Saved chunk to {chunk_filename}")
+            print(f" -> Saved chunk to '{base_filename}' to {output_filename}")
             chunk_counter += 1
         else:
             # --- Level 3: File is too large, split by function/class ---
-            print(" -> File diff is too large. Splitting by function/class...")
-            file_chunks = split_file_diff(patch, tokenizer)
-            print(f" -> Split into {len(file_chunks)} smaller chunks.")
-            final_chunks.extend(file_chunks)
-            chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"diff_chunk_oversized_{chunk_counter}.diff")
-            with open(chunk_filename, "w") as f:
-                f.write(file_diff_str)
-            print(f" -> Saved oversized chunk to {chunk_filename}")
-            chunk_counter += 1
+            print(f"File diff for '{base_filename}' is too large. Splitting by logical blocks/functions...")
+            individual_file_sub_chunks = split_file_diff(patch, tokenizer)
+            print(f" -> Split '{base_filename}' into {len(individual_file_sub_chunks)} smaller chunks.")
+            
+            final_chunks.extend(individual_file_sub_chunks)
+            # chunk_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"diff_chunk_oversized_{chunk_counter}.diff")
+            # with open(chunk_filename, "w") as f:
+            #     f.write(file_diff_str)
+            # print(f" -> Saved oversized chunk to {chunk_filename}")
+            # chunk_counter += 1
+            for sub_chunk_idx, sub_chunk_content in enumerate(individual_file_sub_chunks):
+                # Create a unique filename for each part of the split file
+                # e.g., 'my_script.py_part_1.diff', 'my_script.py_part_2.diff'
+                output_filename = os.path.join(OUTPUT_CHUNKS_DIR, f"{base_filename}_part_{sub_chunk_idx + 1}.diff")
+                with open(output_filename, "w") as f:
+                    f.write(sub_chunk_content)
+                print(f"   -> Saved sub-chunk {sub_chunk_idx + 1} for '{base_filename}' to {output_filename}")
+                saved_file_chunk_counter += 1
     
+    print(f"\nSuccessfully saved {saved_file_chunk_counter} diff files to '{os.path.abspath(OUTPUT_CHUNKS_DIR)}'.")
     return final_chunks
 
 if __name__ == "__main__":
     print(f"Reading diff from file diff_code_to_review")
+    OUTPUT_CHUNKS_DIR = "_temp_diff_chunks"
+    if os.path.exists(OUTPUT_CHUNKS_DIR):
+        import shutil
+        shutil.rmtree(OUTPUT_CHUNKS_DIR)
+        print(f"Cleaned up previous '{OUTPUT_CHUNKS_DIR}' directory.")
+    os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True)
     with open('diff_code_to_review.txt', 'r') as file:
       code_to_review = file.read()
     diff_chunks = create_diff_chunks(code_to_review)
 
-    print("\n" + "="*50)
-    print(f"Generated {len(diff_chunks)} chunk(s) for the LLM.")
-    print("="*50 + "\n")
+    # print("\n" + "="*50)
+    # print(f"Generated {len(diff_chunks)} chunk(s) for the LLM.")
+    # print("="*50 + "\n")
 
-    for i, chunk in enumerate(diff_chunks):
-        print(f"--- Chunk {i+1} ---")
-        print(chunk[:500] + "\n..." if len(chunk) > 500 else chunk) # Print a preview
-        print("-"*(len(f"--- Chunk {i+1} ---")) + "\n")
+    # for i, chunk in enumerate(diff_chunks):
+    #     print(f"--- Chunk {i+1} ---")
+    #     print(chunk[:500] + "\n..." if len(chunk) > 500 else chunk) # Print a preview
+    #     print("-"*(len(f"--- Chunk {i+1} ---")) + "\n")
