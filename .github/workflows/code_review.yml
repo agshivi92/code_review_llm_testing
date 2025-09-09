@@ -39,6 +39,7 @@ jobs:
           pip install snowflake-connector-python
           pip install tiktoken
           pip install whatthepatch
+          pip install snowflake-snowpark-python
           
       - name: Extract PR diff
         id: diff
@@ -93,13 +94,17 @@ jobs:
           name: python-diff-chunks # The name of your artifact
           path: _temp_diff_chunks/
 
+      - name: Run Snowflake Cortex Review
+        id: cortex_review
+        run: |
+          python run_cortex_review.py _temp_diff_chunks/
           
-      # - name: Post Review Comment
-      #   uses: peter-evans/create-or-update-comment@v4
-      #   if: github.event_name == 'pull_request'
-      #   with:
-      #     issue-number: ${{ github.event.pull_request.number }}
-      #     body: ${{ steps.cortex_review.outputs.review }}
+      - name: Post Review Comment
+        uses: peter-evans/create-or-update-comment@v4
+        if: github.event_name == 'pull_request'
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.cortex_review.outputs.review }}
       
       
       
