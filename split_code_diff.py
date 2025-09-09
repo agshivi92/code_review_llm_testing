@@ -5,7 +5,7 @@ import re
 import os
 # --- Configuration ---
 # The target context window size for the LLM.
-CONTEXT_WINDOW_TOKENS = 128000 
+CONTEXT_WINDOW_TOKENS = 100000 
 # The base branch to compare against for generating the diff.
 #BASE_BRANCH = "origin/main" 
 
