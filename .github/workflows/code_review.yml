@@ -132,7 +132,7 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          body: ${{ steps.cortex_review.outputs.review }}
+          body: ${{ steps.cortex_review.outputs.consolidated_summary_text }}
       
       
       
