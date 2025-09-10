@@ -34,7 +34,7 @@ prompt = f"""Please act as a principal-level Python code reviewer. Your review m
 
 # ELIGIBILITY CRITERIA FOR FINDINGS (ALL must be met)
 -   **Evidence:** Quote the exact changed snippet (`+` lines) and cite the new line number.
--   **Severity:** Assign {Low | Medium | High | Critical}.
+-   **Severity:** Assign {{Low | Medium | High | Critical}}.
 -   **Impact & Action:** Briefly explain the issue and provide a minimal, safe correction.
 -   **Non-trivial:** Skip purely stylistic nits (e.g., import order, line length) that a linter would catch.
 
@@ -58,10 +58,10 @@ Your entire response MUST be under 65,000 characters. Prioritize findings with H
 *A list of all material findings. If no significant issues are found, state "No significant issues found."*
 
 **File:** 
--   **Severity:** {Critical | High | Medium | Low}
--   **Line:** {line_number}
--   **Function/Context:** `{function_name_if_applicable}`
--   **Finding:** {A clear, concise description of the issue, its impact, and a recommended correction.}
+-   **Severity:** {{Critical | High | Medium | Low}}
+-   **Line:** {{line_number}}
+-   **Function/Context:** `{{function_name_if_applicable}}`
+-   **Finding:** {{A clear, concise description of the issue, its impact, and a recommended correction.}}
 
 **(Repeat for each finding in each file)**
 
@@ -72,7 +72,7 @@ Your entire response MUST be under 65,000 characters. Prioritize findings with H
 ---
 # CODE DIFF TO REVIEW
 
-{PY_CONTENT}
+{{PY_CONTENT}}
 
 """
 PROMPT_TEMPLATE_CONSOLIDATED_SUMMARY = f"""
