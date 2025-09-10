@@ -11,7 +11,7 @@ from snowflake.cortex import complete, CompleteOptions
 MODEL = "openai-gpt-4.1"
 
 # Safety limit to keep prompts compact
-MAX_CODE_CHARS = 40_000
+MAX_CODE_CHARS = 40000
 # Use the notebook's active Snowflake session
 session = get_active_session()
 
