@@ -193,7 +193,7 @@ if __name__ == "__main__":
         print(f"Cleaned up previous '{OUTPUT_CHUNKS_DIR}' directory.")
     os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True)
     with open('diff_code_to_review.txt', 'r') as file:
-      code_to_review = file.read()
+        code_to_review = file.read()
     diff_chunks = create_diff_chunks(code_to_review)
 
     # print("\n" + "="*50)
