@@ -180,13 +180,19 @@ def create_diff_chunks(code_to_review) -> list[str]:
 
 if __name__ == "__main__":
     print(f"Reading diff from file diff_code_to_review")
-    OUTPUT_CHUNKS_DIR = "_temp_diff_chunks"
+    if len(sys.argv) < 3:
+        print("Usage: python split_code_diff.py <input_diff_file_path> <output_directory_path>", file=sys.stderr)
+        sys.exit(1)
+
+    input_diff_file = sys.argv[1]
+    output_dir = sys.argv[2]
+    OUTPUT_CHUNKS_DIR = output_dir
     if os.path.exists(OUTPUT_CHUNKS_DIR):
         import shutil
         shutil.rmtree(OUTPUT_CHUNKS_DIR)
         print(f"Cleaned up previous '{OUTPUT_CHUNKS_DIR}' directory.")
     os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True)
-    with open('diff_code_to_review.txt', 'r') as file:
+    with open(input_diff_file, 'r') as file:
       code_to_review = file.read()
     diff_chunks = create_diff_chunks(code_to_review)
 
