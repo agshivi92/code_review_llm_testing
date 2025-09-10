@@ -60,7 +60,7 @@ jobs:
           echo "Generated dynamic output directory name: $DYNAMIC_OUTPUT_DIR"
           # Set this as an output of this step, so subsequent steps can use it
           echo "DYNAMIC_OUTPUT_DIR_PATH=$DYNAMIC_OUTPUT_DIR" >> "$GITHUB_OUTPUT"
-          echo "DYNAMIC_OUTPUT_REVIEW_DIR_PATH=$DYNAMIC_OUTPUT_REVIEW_DIR" >> "$GITHUB_REVIEW_OUTPUT"
+          echo "DYNAMIC_OUTPUT_REVIEW_DIR_PATH=$DYNAMIC_OUTPUT_REVIEW_DIR" >> "$GITHUB_OUTPUT"
           
       - name: Extract PR diff
         id: diff
