@@ -57,7 +57,7 @@ Your entire response MUST be under 65,000 characters. Prioritize findings with H
 ### Detailed Findings
 *A list of all material findings. If no significant issues are found, state "No significant issues found."*
 
-**File:** `path/to/your/file.py`
+**File:** 
 -   **Severity:** {Critical | High | Medium | Low}
 -   **Line:** {line_number}
 -   **Function/Context:** `{function_name_if_applicable}`
