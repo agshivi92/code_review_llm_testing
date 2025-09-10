@@ -56,10 +56,11 @@ jobs:
 
           # Combine them
           DYNAMIC_OUTPUT_DIR="${PR_CREATOR_CLEANED}_${TIMESTAMP}"
-
+          DYNAMIC_OUTPUT_REVIEW_DIR="${PR_CREATOR_CLEANED}_REVIEW_${TIMESTAMP}"
           echo "Generated dynamic output directory name: $DYNAMIC_OUTPUT_DIR"
           # Set this as an output of this step, so subsequent steps can use it
           echo "DYNAMIC_OUTPUT_DIR_PATH=$DYNAMIC_OUTPUT_DIR" >> "$GITHUB_OUTPUT"
+          echo "DYNAMIC_OUTPUT_REVIEW_DIR_PATH=$DYNAMIC_OUTPUT_REVIEW_DIR" >> "$GITHUB_REVIEW_OUTPUT"
           
       - name: Extract PR diff
         id: diff
@@ -124,7 +125,7 @@ jobs:
         id: cortex_review
         run: |
           DYNAMIC_OUTPUT_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}"
-          python run_cortex_review.py "$DYNAMIC_OUTPUT_DIR_NAME"
+          python run_cortex_review.py "$DYNAMIC_OUTPUT_DIR_NAME" "$DYNAMIC_OUTPUT_REVIEW_DIR"
           
       - name: Post Review Comment
         uses: peter-evans/create-or-update-comment@v4
