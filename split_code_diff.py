@@ -2,7 +2,7 @@ import subprocess
 import tiktoken
 from whatthepatch import parse_patch
 import re
-import os
+import os,sys
 # --- Configuration ---
 # The target context window size for the LLM.
 CONTEXT_WINDOW_TOKENS = 100000 
