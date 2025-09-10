@@ -125,7 +125,8 @@ jobs:
         id: cortex_review
         run: |
           DYNAMIC_OUTPUT_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}"
-          python run_cortex_review.py "$DYNAMIC_OUTPUT_DIR_NAME" "$DYNAMIC_OUTPUT_REVIEW_DIR"
+          DYNAMIC_OUTPUT_REVIEW_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_REVIEW_DIR_PATH }}"
+          python run_cortex_review.py "$DYNAMIC_OUTPUT_DIR_NAME" "$DYNAMIC_OUTPUT_REVIEW_DIR_NAME"
           
       - name: Post Review Comment
         uses: peter-evans/create-or-update-comment@v4
