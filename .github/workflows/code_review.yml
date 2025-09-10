@@ -40,6 +40,26 @@ jobs:
           pip install tiktoken
           pip install whatthepatch
           pip install snowflake-snowpark-python
+
+      - name: Generate Dynamic Output Directory Name
+        id: generate_dir_name # Assign an ID to this step
+        run: |
+          # Get PR Creator Username
+          # GITHUB_ACTOR is the user who triggered the workflow.
+          # For a pull_request event, this is the PR creator/committer.
+          PR_CREATOR="${{ github.actor }}"
+          # Convert to lowercase and replace non-alphanumeric with underscore for a clean directory name
+          PR_CREATOR_CLEANED=$(echo "$PR_CREATOR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+
+          # Get Current Timestamp (YYYYMMDD_HHMMSS)
+          TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+
+          # Combine them
+          DYNAMIC_OUTPUT_DIR="${PR_CREATOR_CLEANED}_${TIMESTAMP}"
+
+          echo "Generated dynamic output directory name: $DYNAMIC_OUTPUT_DIR"
+          # Set this as an output of this step, so subsequent steps can use it
+          echo "DYNAMIC_OUTPUT_DIR_PATH=$DYNAMIC_OUTPUT_DIR" >> "$GITHUB_OUTPUT"
           
       - name: Extract PR diff
         id: diff
@@ -78,26 +98,33 @@ jobs:
       - name: Check Diff File Token And Split
         id: Token_Split
         run: |
-          # The diff_code_to_review.txt file is available directly in the current working directory
-          python split_code_diff.py diff_code_to_review.txt
+          # Retrieve the dynamic output directory path from the previous step's output
+          DYNAMIC_OUTPUT_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}"
+
+          echo "Passing diff file 'diff_code_to_review.txt' and output directory '$DYNAMIC_OUTPUT_DIR_NAME' to split_code_diff.py"
+          # Pass both the input diff file and the dynamic output directory as arguments
+          python split_code_diff.py diff_code_to_review.txt "$DYNAMIC_OUTPUT_DIR_NAME"
 
       - name: Verify files created by script (Crucial for confirmation)
         run: |
-          echo "Listing contents of the output directory: _temp_diff_chunks/"
-          ls -R _temp_diff_chunks/
-          echo "Verifying file counts:"
-          find _temp_diff_chunks -type f | wc -l # Count files in the directory
+          DYNAMIC_OUTPUT_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}"
+          echo "Listing contents of the generated directory: $DYNAMIC_OUTPUT_DIR_NAME"
+          ls -l "$DYNAMIC_OUTPUT_DIR_NAME/"
+          ls -l "$DYNAMIC_OUTPUT_DIR_NAME"/* # List files inside
 
       - name: Upload diff chunks as artifact
         uses: actions/upload-artifact@v4 # Use the official upload-artifact action
+        if: always() # Upload even if previous steps failed
         with:
-          name: python-diff-chunks # The name of your artifact
-          path: _temp_diff_chunks/
+          name: split-diff-chunks
+          path: ${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}/
+          retention-days: 7 # Keep the chunks for 7 days
 
       - name: Run Snowflake Cortex Review
         id: cortex_review
         run: |
-          python run_cortex_review.py _temp_diff_chunks/
+          DYNAMIC_OUTPUT_DIR_NAME="${{ steps.generate_dir_name.outputs.DYNAMIC_OUTPUT_DIR_PATH }}"
+          python run_cortex_review.py "$DYNAMIC_OUTPUT_DIR_NAME"
           
       - name: Post Review Comment
         uses: peter-evans/create-or-update-comment@v4
