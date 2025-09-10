@@ -92,7 +92,7 @@ def split_file_diff(patch, tokenizer) -> list[str]:
     return chunks
 
 
-def create_diff_chunks(code_to_review) -> list[str]:
+def create_diff_chunks(code_to_review,OUTPUT_CHUNKS_DIR) -> list[str]:
     """
     Main function to generate git diff and split it into chunks
     that fit within the LLM's context window.
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     os.makedirs(OUTPUT_CHUNKS_DIR, exist_ok=True)
     with open('diff_code_to_review.txt', 'r') as file:
         code_to_review = file.read()
-    diff_chunks = create_diff_chunks(code_to_review)
+    diff_chunks = create_diff_chunks(code_to_review,OUTPUT_CHUNKS_DIR)
 
     # print("\n" + "="*50)
     # print(f"Generated {len(diff_chunks)} chunk(s) for the LLM.")
